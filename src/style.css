@@ -1,0 +1,7 @@
+/* File: src/style.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Kita hapus rule body yang error tadi.
+   Warna background akan kita pasang di App.vue atau index.html saja */
