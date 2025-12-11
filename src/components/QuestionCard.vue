@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, onMounted } from "vue";
+import { computed, ref, inject } from "vue";
 import { marked } from "marked";
 import {
     Brain,
@@ -40,12 +40,25 @@ const props = defineProps({
 const emit = defineEmits(["toggle"]);
 const isBookmarked = ref(false);
 
+// 1. Inject Fungsi dari App.vue untuk memanggil AI Tutor
+const askAi = inject("askAi");
+
+// 2. Fungsi Bookmark
 const toggleBookmark = (e) => {
     e.stopPropagation();
     isBookmarked.value = !isBookmarked.value;
 };
 
-// --- LOGIKA SUARA INDONESIA (FIXED) ---
+// 3. Fungsi Tanya AI (Pemicu Chatbot)
+const askGemini = (e) => {
+    e.stopPropagation();
+    if (askAi) {
+        // Kirim pertanyaan kartu ke AI Tutor
+        askAi(props.item.q);
+    }
+};
+
+// 4. Fungsi Suara (Text-to-Speech) dengan Deteksi Bahasa Indonesia
 const speakAnswer = (e) => {
     e.stopPropagation();
 
@@ -57,48 +70,39 @@ const speakAnswer = (e) => {
     const synth = window.speechSynthesis;
     synth.cancel(); // Stop suara sebelumnya
 
-    // Fungsi untuk mendapatkan suara
     const getIndoVoice = () => {
         const voices = synth.getVoices();
-        // 1. Cari suara "Google Bahasa Indonesia" (Android/Chrome)
+        // Prioritas 1: Google Bahasa Indonesia
         let selectedVoice = voices.find(
             (v) => v.name === "Google Bahasa Indonesia",
         );
-
-        // 2. Kalau ga ada, cari "Microsoft Gadis" (Windows)
+        // Prioritas 2: Microsoft Gadis (Windows)
         if (!selectedVoice)
             selectedVoice = voices.find((v) =>
                 v.name.includes("Microsoft Gadis"),
             );
-
-        // 3. Kalau ga ada, cari apapun yang ada label "Indonesia" atau "id-ID"
+        // Prioritas 3: Apapun yang berlabel ID
         if (!selectedVoice)
             selectedVoice = voices.find(
                 (v) => v.lang === "id-ID" || v.lang === "id_ID",
             );
-
         return selectedVoice;
     };
 
     const speak = () => {
         const voice = getIndoVoice();
-        const cleanText = props.item.a.replace(/[*#_]/g, ""); // Bersihkan simbol
+        const cleanText = props.item.a.replace(/[*#_]/g, ""); // Bersihkan simbol markdown
 
         const utterance = new SpeechSynthesisUtterance(cleanText);
-
-        // Paksa settingan Indonesia
         utterance.lang = "id-ID";
-        if (voice) {
-            utterance.voice = voice;
-        }
-
-        utterance.rate = 0.9; // Sedikit lambat biar jelas
+        if (voice) utterance.voice = voice;
+        utterance.rate = 0.95; // Kecepatan sedikit lambat biar jelas
         utterance.pitch = 1.0; // Nada normal
 
         synth.speak(utterance);
     };
 
-    // Chrome kadang butuh waktu muat suara
+    // Chrome kadang perlu waktu muat daftar suara
     if (synth.getVoices().length === 0) {
         synth.onvoiceschanged = speak;
     } else {
@@ -134,6 +138,7 @@ const iconMap = {
     Target,
 };
 
+// Render Markdown
 const parsedAnswer = computed(() => marked.parse(props.item.a));
 </script>
 
@@ -152,8 +157,8 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
         ></div>
 
         <div class="p-5 pl-8 md:p-7 md:pl-10">
-            <div class="flex justify-between items-center mb-4">
-                <div class="flex items-center gap-3">
+            <div class="flex justify-between items-start mb-4">
+                <div class="flex flex-wrap items-center gap-2">
                     <div
                         class="flex items-center gap-2 px-3 py-1.5 bg-cozy-bg rounded-lg border border-cozy-border transition-colors duration-300"
                     >
@@ -172,6 +177,7 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
                     <button
                         @click="toggleBookmark"
                         class="p-1.5 rounded-full hover:bg-cozy-bg transition-colors group/star"
+                        title="Tandai Penting"
                     >
                         <Star
                             class="w-4 h-4 transition-all duration-300"
@@ -181,6 +187,17 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
                                     : 'text-cozy-border group-hover/star:text-cozy-accent'
                             "
                         />
+                    </button>
+
+                    <button
+                        @click="askGemini"
+                        class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-cozy-primary/10 text-cozy-primary text-[10px] font-bold uppercase tracking-wider hover:bg-cozy-primary hover:text-white transition-all group/ai ml-1"
+                        title="Minta penjelasan detail ke AI"
+                    >
+                        <Sparkles
+                            class="w-3.5 h-3.5 group-hover/ai:animate-spin"
+                        />
+                        <span>Tanya AI</span>
                     </button>
                 </div>
 
@@ -221,7 +238,7 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
                         <button
                             @click="speakAnswer"
                             class="absolute top-5 right-0 p-2 bg-cozy-bg rounded-full text-cozy-primary hover:bg-cozy-primary hover:text-white transition-all shadow-sm active:scale-95 group/voice"
-                            title="Bacakan (B.Indo)"
+                            title="Bacakan Jawaban"
                         >
                             <Volume2
                                 class="w-4 h-4 group-hover/voice:animate-pulse"
@@ -242,6 +259,7 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
 </template>
 
 <style>
+/* Markdown Styles mengikuti Tema */
 .markdown-body p {
     margin-bottom: 0.75em;
 }
