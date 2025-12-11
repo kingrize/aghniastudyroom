@@ -13,7 +13,7 @@ const greeting = computed(() => {
 
 <template>
     <header
-        class="pt-10 pb-6 px-6 relative overflow-hidden text-center transition-colors duration-300"
+        class="pt-10 pb-6 px-6 relative overflow-hidden text-center transition-colors duration-500"
     >
         <div
             class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10 opacity-60"
@@ -28,7 +28,7 @@ const greeting = computed(() => {
 
         <div class="relative space-y-4">
             <div
-                class="inline-flex items-center gap-2 bg-cozy-card/90 backdrop-blur-sm px-5 py-2 rounded-full shadow-sm border border-cozy-border hover:scale-105 transition-transform duration-300 cursor-default group"
+                class="inline-flex items-center gap-2 bg-cozy-card/80 backdrop-blur-sm px-5 py-2 rounded-full shadow-sm border border-cozy-border hover:scale-105 transition-all duration-300 cursor-default group"
             >
                 <Sparkles
                     class="w-4 h-4 text-cozy-accent group-hover:animate-spin"
@@ -41,13 +41,13 @@ const greeting = computed(() => {
             </div>
 
             <h1
-                class="font-display text-3xl md:text-5xl font-bold text-cozy-text tracking-tight transition-colors duration-300"
+                class="font-display text-3xl md:text-5xl font-bold text-cozy-text tracking-tight transition-colors"
             >
                 Psychology <span class="text-cozy-primary">Review</span>
             </h1>
 
             <div
-                class="flex flex-col items-center justify-center gap-1 text-cozy-muted text-sm md:text-base font-medium max-w-md mx-auto leading-relaxed transition-colors duration-300"
+                class="flex flex-col items-center justify-center gap-1 text-cozy-muted text-sm md:text-base font-medium max-w-md mx-auto leading-relaxed transition-colors"
             >
                 <p>Belajar pelan-pelan ya, jangan dipaksain.</p>
                 <div

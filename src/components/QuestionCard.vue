@@ -259,7 +259,7 @@ const parsedAnswer = computed(() => marked.parse(props.item.a));
 </template>
 
 <style>
-/* Markdown Styles mengikuti Tema */
+/* Markdown Styles mengikuti Tema CSS Variable */
 .markdown-body p {
     margin-bottom: 0.75em;
 }

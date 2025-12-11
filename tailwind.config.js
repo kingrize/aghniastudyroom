@@ -12,15 +12,18 @@ export default {
           bg: "var(--c-bg)",
           card: "var(--c-card)",
           text: "var(--c-text)",
-          muted: "var(--c-text-muted)", // Tambahan baru
+          muted: "var(--c-text-muted)",
           primary: "var(--c-primary)",
           secondary: "var(--c-secondary)",
           accent: "var(--c-accent)",
           border: "var(--c-border)",
+          // 👇 TAMBAHAN BARU
+          "user-bg": "var(--c-user-bg)",
+          "user-text": "var(--c-user-text)",
         },
       },
       boxShadow: {
-        soft: "0 4px 20px -2px rgba(0, 0, 0, 0.1)",
+        soft: "0 10px 40px -10px rgba(0, 0, 0, 0.08)",
       },
     },
   },

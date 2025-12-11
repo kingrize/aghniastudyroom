@@ -1,49 +1,62 @@
+/* File: src/style.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-    /* Default: COZY (Hangat) */
+    /* 1. COZY THEME */
     --c-bg: #fff8f3;
     --c-card: #ffffff;
-    --c-text: #4a4a4a; /* Lebih gelap dari sebelumnya biar terbaca */
+    --c-text: #5d5d5d;
     --c-text-muted: #8d8d8d;
-    --c-primary: #e68e8e; /* Dusty Pink */
-    --c-secondary: #9fb8ad; /* Sage Green */
+    --c-primary: #e68e8e;
+    --c-secondary: #9fb8ad;
     --c-accent: #eac286;
     --c-border: #f3f4f6;
+
+    /* KHUSUS USER BUBBLE (COZY) */
+    --c-user-bg: #e68e8e; /* Pink */
+    --c-user-text: #ffffff; /* Teks Putih */
 }
 
 [data-theme="dark"] {
-    /* NIGHT (Gelap & Jelas) */
-    --c-bg: #1e293b; /* Slate 800 */
-    --c-card: #334155; /* Slate 700 */
-    --c-text: #f1f5f9; /* Putih Terang (Slate 100) */
+    /* 2. DARK THEME */
+    --c-bg: #0f172a;
+    --c-card: #1e293b;
+    --c-text: #e2e8f0;
     --c-text-muted: #94a3b8;
-    --c-primary: #f472b6; /* Pink Neon */
-    --c-secondary: #cbd5e1;
+    --c-primary: #f472b6;
+    --c-secondary: #64748b;
     --c-accent: #fbbf24;
-    --c-border: #475569;
+    --c-border: #334155;
+
+    /* KHUSUS USER BUBBLE (DARK) */
+    --c-user-bg: #f472b6; /* Pink Neon */
+    --c-user-text: #ffffff; /* Teks Putih */
 }
 
 [data-theme="focus"] {
-    /* FOCUS (Hitam Putih Tajam) */
-    --c-bg: #f8fafc;
+    /* 3. FOCUS THEME (High Contrast) */
+    --c-bg: #f9fafb;
     --c-card: #ffffff;
-    --c-text: #0f172a; /* Hitam Pekat */
-    --c-text-muted: #64748b;
-    --c-primary: #4f46e5; /* Indigo */
-    --c-secondary: #475569;
-    --c-accent: #d97706;
-    --c-border: #e2e8f0;
+    --c-text: #111827;
+    --c-text-muted: #4b5563;
+    --c-primary: #171717;
+    --c-secondary: #525252;
+    --c-accent: #262626;
+    --c-border: #e5e7eb;
+
+    /* KHUSUS USER BUBBLE (FOCUS - Beda Sendiri) */
+    --c-user-bg: #e5e7eb; /* Abu-abu Terang */
+    --c-user-text: #111827; /* Teks Hitam Pekat */
 }
 
 body {
     background-color: var(--c-bg);
     color: var(--c-text);
     transition:
-        background-color 0.3s ease,
-        color 0.3s ease;
+        background-color 0.4s ease,
+        color 0.4s ease;
 }
 
 /* Scrollbar */
@@ -55,6 +68,6 @@ body {
 }
 ::-webkit-scrollbar-thumb {
     background-color: var(--c-primary);
-    border-radius: 10px;
-    opacity: 0.8;
+    border-radius: 99px;
+    opacity: 0.5;
 }
