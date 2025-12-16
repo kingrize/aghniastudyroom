@@ -6,7 +6,7 @@ import HeaderSection from "../components/HeaderSection.vue";
 import FooterSection from "../components/FooterSection.vue";
 import QuestionCard from "../components/QuestionCard.vue";
 import { playPop } from "../utils/sound.js";
-import { Loader2 } from "lucide-vue-next";
+import { Loader2, Bot } from "lucide-vue-next";
 
 // --- STATE ---
 const questions = ref([]);
@@ -37,12 +37,15 @@ onMounted(async () => {
     }
 });
 
-// --- LOGIC INTERAKSI ---
+// --- INTERAKSI ---
 const toggleCard = (id) => {
     playPop();
     const newSet = new Set(revealedCards.value);
-    if (newSet.has(id)) newSet.delete(id);
-    else {
+
+    // Accordion Mode
+    if (newSet.has(id)) {
+        newSet.delete(id);
+    } else {
         newSet.clear();
         newSet.add(id);
     }
@@ -54,7 +57,6 @@ const selectFilter = (tag) => {
     selectedTag.value = tag;
 };
 
-// Filter Logic
 const tags = computed(() => [
     "Semua",
     ...new Set(questions.value.map((q) => q.tag)),
@@ -68,27 +70,60 @@ const filteredQuestions = computed(() => {
 
 <template>
     <div
-        class="min-h-screen bg-cozy-bg text-cozy-text transition-colors duration-500 pb-20"
+        class="min-h-screen bg-cozy-bg text-cozy-text transition-colors duration-500 pb-20 font-sans"
     >
         <HeaderSection />
 
         <main class="max-w-6xl mx-auto px-6 md:px-12 relative z-10">
+            <div v-if="!isLoading && questions.length > 0">
+                <router-link
+                    to="/quiz"
+                    @click="playPop"
+                    class="fixed bottom-24 left-6 z-40 group"
+                >
+                    <div
+                        class="w-14 h-14 flex items-center justify-center bg-cozy-card rounded-2xl shadow-xl shadow-cozy-shadow border border-cozy-border hover:scale-110 hover:-rotate-6 hover:border-cozy-primary transition-all duration-300 ease-spring relative overflow-hidden"
+                    >
+                        <div
+                            class="absolute inset-0 bg-cozy-primary/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                        ></div>
+
+                        <Bot
+                            class="w-7 h-7 text-cozy-text group-hover:text-cozy-primary group-hover:animate-wiggle transition-colors relative z-10"
+                        />
+
+                        <span
+                            class="absolute top-3 right-3 w-2.5 h-2.5 bg-cozy-accent rounded-full border-2 border-cozy-card animate-pulse z-10"
+                        ></span>
+                    </div>
+
+                    <div
+                        class="absolute left-full top-1/2 -translate-y-1/2 ml-4 px-3 py-1.5 bg-cozy-text text-cozy-bg text-[10px] font-bold rounded-lg opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all duration-300 whitespace-nowrap shadow-lg pointer-events-none"
+                    >
+                        Ujian Dadakan
+                        <div
+                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-cozy-text"
+                        ></div>
+                    </div>
+                </router-link>
+            </div>
+
             <div
                 v-if="!isLoading && questions.length > 0"
                 class="sticky top-0 z-30 bg-cozy-bg/95 backdrop-blur-xl py-4 -mx-6 px-6 md:mx-0 md:px-0 mb-8 border-b border-transparent transition-all"
             >
                 <div
-                    class="flex gap-3 overflow-x-auto no-scrollbar snap-x py-2"
+                    class="flex gap-3 overflow-x-auto no-scrollbar snap-x py-2 justify-start md:justify-center"
                 >
                     <button
                         v-for="tag in tags"
                         :key="tag"
                         @click="selectFilter(tag)"
-                        class="snap-start px-5 py-2.5 rounded-full text-sm font-bold transition-all duration-300 border active:scale-95 whitespace-nowrap"
+                        class="snap-start px-4 py-2 rounded-full text-xs font-bold transition-all duration-300 border active:scale-95 whitespace-nowrap"
                         :class="
                             selectedTag === tag
-                                ? 'bg-cozy-text text-cozy-bg border-cozy-text shadow-lg transform -translate-y-0.5'
-                                : 'bg-cozy-card text-cozy-muted border-transparent hover:border-cozy-border hover:text-cozy-text'
+                                ? 'bg-cozy-text text-cozy-bg border-cozy-text shadow-md transform -translate-y-0.5'
+                                : 'bg-transparent text-cozy-muted border-transparent hover:bg-cozy-card hover:text-cozy-text'
                         "
                     >
                         {{ tag }}
@@ -100,17 +135,25 @@ const filteredQuestions = computed(() => {
                 v-if="isLoading"
                 class="flex flex-col items-center justify-center py-24 min-h-[40vh]"
             >
-                <Loader2
-                    class="w-10 h-10 text-cozy-primary animate-spin mb-4"
-                />
-                <p class="text-sm text-cozy-muted font-medium animate-pulse">
-                    Sedang mengambil materi...
+                <div class="relative mb-6">
+                    <div
+                        class="w-12 h-12 bg-cozy-primary/10 rounded-full flex items-center justify-center animate-pulse"
+                    >
+                        <Loader2
+                            class="w-6 h-6 text-cozy-primary animate-spin"
+                        />
+                    </div>
+                </div>
+                <p
+                    class="text-xs text-cozy-muted font-bold tracking-widest animate-pulse"
+                >
+                    MEMUAT MATERI...
                 </p>
             </div>
 
             <div
                 v-else-if="filteredQuestions.length > 0"
-                class="grid grid-cols-1 md:grid-cols-2 gap-6 pb-12"
+                class="grid grid-cols-1 md:grid-cols-2 gap-5 pb-12"
             >
                 <transition-group name="staggered-fade">
                     <QuestionCard
@@ -127,25 +170,24 @@ const filteredQuestions = computed(() => {
                 v-else
                 class="flex flex-col items-center justify-center py-24 min-h-[50vh] text-center"
             >
-                <div class="mb-8 relative">
+                <div class="mb-8 relative group cursor-default">
                     <pre
-                        class="font-mono text-sm leading-[1.1] text-cozy-primary/60 animate-breathe select-none"
+                        class="font-mono text-sm leading-[1.1] text-cozy-primary/60 animate-breathe select-none transition-colors group-hover:text-cozy-primary"
                     >
   /\_/\
  ( o.o )
   > ^ <
                     </pre>
-
                     <div
                         class="absolute inset-0 bg-cozy-primary/20 blur-3xl rounded-full animate-pulse -z-10 scale-150 opacity-30"
                     ></div>
                 </div>
 
-                <h3 class="font-display font-bold text-xl text-cozy-text mb-2">
+                <h3 class="font-display font-bold text-lg text-cozy-text mb-2">
                     Belum ada materi, Aiya.
                 </h3>
                 <p
-                    class="text-sm text-cozy-muted max-w-xs mx-auto leading-relaxed"
+                    class="text-xs text-cozy-muted max-w-[250px] mx-auto leading-relaxed"
                 >
                     Kucing penjaga sedang menunggu Admin memasukkan soal baru.
                     Sabar ya! 🐾
@@ -167,6 +209,28 @@ const filteredQuestions = computed(() => {
     scrollbar-width: none;
 }
 
+/* Animasi Spring Physics */
+.ease-spring {
+    transition-timing-function: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Animasi Wiggle untuk Robot */
+@keyframes wiggle {
+    0%,
+    100% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(-10deg);
+    }
+    75% {
+        transform: rotate(10deg);
+    }
+}
+.animate-wiggle {
+    animation: wiggle 0.5s ease-in-out infinite;
+}
+
 /* Animasi List */
 .staggered-fade-enter-active,
 .staggered-fade-leave-active {
@@ -181,8 +245,7 @@ const filteredQuestions = computed(() => {
     transition: transform 0.5s ease;
 }
 
-/* Animasi Kucing Bernafas (Breathing) */
-/* Gerakan halus naik turun dan sedikit membesar seolah bernafas */
+/* Animasi Kucing Bernafas */
 @keyframes breathe {
     0%,
     100% {
@@ -194,10 +257,8 @@ const filteredQuestions = computed(() => {
         opacity: 1;
     }
 }
-
 .animate-breathe {
-    /* Durasi 3 detik agar terlihat tenang */
     animation: breathe 3s ease-in-out infinite;
-    display: inline-block; /* Agar transform scale bekerja baik */
+    display: inline-block;
 }
 </style>

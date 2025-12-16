@@ -20,13 +20,18 @@ const router = createRouter({
       path: "/admin",
       name: "admin",
       component: () => import("../views/AdminView.vue"),
-      meta: { requiresAuth: true }, // Penjaga Pintu (Satpam)
+      meta: { requiresAuth: true },
+    },
+    // RUTE BARU: QUIZ MODE
+    {
+      path: "/quiz",
+      name: "quiz",
+      component: () => import("../views/QuizView.vue"),
     },
   ],
 });
 
-// --- LOGIC SATPAM (Navigation Guard) ---
-// Cek apakah user sudah login sebelum masuk ke /admin
+// ... (Sisa kode Logic Satpam biarkan tetap sama) ...
 const getCurrentUser = () => {
   return new Promise((resolve, reject) => {
     const removeListener = onAuthStateChanged(
@@ -41,15 +46,14 @@ const getCurrentUser = () => {
 };
 
 router.beforeEach(async (to, from, next) => {
-  // Jika halaman butuh 'requiresAuth' (seperti Admin)
   if (to.matched.some((record) => record.meta.requiresAuth)) {
     if (await getCurrentUser()) {
-      next(); // Boleh masuk
+      next();
     } else {
-      next("/login"); // Tendang ke login
+      next("/login");
     }
   } else {
-    next(); // Halaman biasa (Home/Login) bebas akses
+    next();
   }
 });
 

@@ -16,7 +16,14 @@ import {
     Lightbulb,
     Smile,
     ChevronLeft,
+    Battery,
+    BatteryCharging,
+    Power,
     MessageSquare,
+    BookOpen,
+    GraduationCap,
+    Star,
+    Cloud,
 } from "lucide-vue-next";
 
 // --- STATE ---
@@ -25,33 +32,66 @@ const showSettings = ref(false);
 const userInput = ref("");
 const isLoading = ref(false);
 const chatContainer = ref(null);
-const messages = ref([]);
+const messages = ref([
+    {
+        role: "model",
+        text: "Halo Aiya! 👋 Aku siap bantu kamu belajar topik apa saja hari ini. Mau bahas apa?",
+    },
+]);
 
-// Quick Prompts (Saran Topik)
+// Quick Prompts
 const quickPrompts = [
-    { text: "Siapa Phineas Gage? 🧠", icon: Heart },
-    { text: "Broca vs Wernicke? 🗣️", icon: Lightbulb },
-    { text: "Otak Reptil itu apa? 🦎", icon: Zap },
-    { text: "Semangatin aku! ✨", icon: Smile },
+    { text: "Jelaskan konsep dasar... 🧠", icon: BookOpen },
+    { text: "Berikan contoh nyata... 🌍", icon: Lightbulb },
+    { text: "Buatkan ringkasan singkat 📝", icon: Zap },
+    { text: "Semangatin aku dong! ✨", icon: Smile },
 ];
 
 // --- CONFIG ---
 const currentProvider = ref("gemini");
 const selectedKeyIndex = ref(1);
+const isAutoKey = ref(true);
+const selectedPersona = ref("friend");
 
 const providers = {
-    // PERBAIKAN: Menambahkan hasMultiKey: true agar slot key muncul
     gemini: {
-        name: "Gemini 2.5",
+        name: "Gemini 2.5 Flash",
         icon: Sparkles,
-        desc: "Cerdas & Gratis",
         hasMultiKey: true,
+        maxKeys: 10,
     },
-    groq: {
-        name: "Groq Llama 3",
-        icon: Zap,
-        desc: "Super Cepat",
-        hasMultiKey: false,
+    groq: { name: "Groq Llama 3", icon: Zap, hasMultiKey: false, maxKeys: 0 },
+    aiml: { name: "AIML (GPT-4o)", icon: Cloud, hasMultiKey: true, maxKeys: 5 }, // UPDATE: Multi Key Aktif (5 Slot)
+};
+
+const personas = {
+    friend: {
+        name: "Teman Belajar",
+        icon: Smile,
+        desc: "Santai, pakai emoji, suportif.",
+        instruction:
+            "Bertindaklah sebagai sahabat akrab. Gunakan bahasa santai (aku/kamu), banyak emoji, ceria, dan sangat suportif.",
+    },
+    teacher: {
+        name: "Dosen Sabar",
+        icon: GraduationCap,
+        desc: "Jelas, terstruktur, edukatif.",
+        instruction:
+            "Bertindaklah sebagai Dosen yang bijaksana. Jelaskan konsep dengan terstruktur, gunakan analogi, dan panggil 'Mahasiswa'.",
+    },
+    neutral: {
+        name: "Asisten Pintar",
+        icon: Bot,
+        desc: "Padat, to-the-point, data.",
+        instruction:
+            "Bertindaklah sebagai AI Asisten yang objektif. Jawab langsung pada intinya, formal, dan fokus pada fakta.",
+    },
+    motivator: {
+        name: "Motivator",
+        icon: Star,
+        desc: "Penyemangat, penuh quotes.",
+        instruction:
+            "Bertindaklah sebagai Motivator. Setiap jawaban harus membakar semangat, gunakan kata-kata positif!",
     },
 };
 
@@ -59,11 +99,18 @@ const providers = {
 const apiKeys = {
     gemini: {},
     groq: import.meta.env.VITE_GROQ_API_KEY || "",
+    aiml: {}, // Wadah key AIML
 };
 
+// Load Gemini (1-10)
 for (let i = 1; i <= 10; i++) {
     apiKeys.gemini[i] =
         import.meta.env[`VITE_GEMINI_API_KEY${i === 1 ? "" : "_" + i}`] || "";
+}
+
+// Load AIML (1-5)
+for (let i = 1; i <= 5; i++) {
+    apiKeys.aiml[i] = import.meta.env[`VITE_AIML_API_KEY_${i}`] || "";
 }
 
 const parseMarkdown = (text) => marked.parse(text);
@@ -80,25 +127,16 @@ const closeChat = () => {
 
 const usePrompt = (text) => {
     userInput.value = text;
-    sendMessage();
+    const inputEl = document.querySelector(
+        'input[placeholder="Tanya Tutor Aiya..."]',
+    );
+    if (inputEl) inputEl.focus();
 };
 
+// --- LOGIC PINTAR: SEND MESSAGE ---
 const sendMessage = async () => {
     if (!userInput.value.trim()) return;
     playPop();
-
-    let activeKey =
-        currentProvider.value === "gemini"
-            ? apiKeys.gemini[selectedKeyIndex.value]
-            : apiKeys.groq;
-
-    if (!activeKey) {
-        messages.value.push({
-            role: "model",
-            text: "⚠️ **API Key Kosong!**\nIsi dulu ya di file `.env`, cantik! 🌸",
-        });
-        return;
-    }
 
     const userText = userInput.value;
     messages.value.push({ role: "user", text: userText });
@@ -106,36 +144,90 @@ const sendMessage = async () => {
     isLoading.value = true;
     scrollToBottom();
 
-    const systemInstruction = `${contextData} [SISTEM] Model: ${providers[currentProvider.value].name}. Jawab ramah, gunakan emoji, dan panggil user "Aiya".`;
+    const personaInstruction = personas[selectedPersona.value].instruction;
+    const systemInstruction = `${contextData} [SISTEM] Model: ${providers[currentProvider.value].name}. [GAYA BICARA] ${personaInstruction}`;
 
     try {
         let reply = "";
+
+        // HELPER: Switcher Logic
+        const runMultiKeyProvider = async (providerName, apiCall) => {
+            let success = false;
+            let keysToTry = [];
+            const max = providers[providerName].maxKeys;
+            const keysObj = apiKeys[providerName];
+
+            if (isAutoKey.value) {
+                // Auto: Coba semua slot yang ada isinya
+                for (let i = 1; i <= max; i++)
+                    if (keysObj[i]) keysToTry.push(i);
+            } else {
+                // Manual: Coba slot terpilih saja
+                if (keysObj[selectedKeyIndex.value])
+                    keysToTry.push(selectedKeyIndex.value);
+            }
+
+            if (keysToTry.length === 0)
+                throw new Error(
+                    `Tidak ada API Key ${providerName} yang tersedia!`,
+                );
+
+            for (const keyIndex of keysToTry) {
+                try {
+                    const activeKey = keysObj[keyIndex];
+                    const result = await apiCall(activeKey);
+                    reply = result;
+                    success = true;
+                    if (isAutoKey.value) selectedKeyIndex.value = keyIndex;
+                    break;
+                } catch (err) {
+                    console.warn(
+                        `[${providerName}] Slot ${keyIndex} gagal: ${err.message}`,
+                    );
+                }
+            }
+            if (!success)
+                throw new Error(`Semua slot energi ${providerName} habis!`);
+        };
+
+        // 1. JALUR GEMINI
         if (currentProvider.value === "gemini") {
-            const res = await fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${activeKey}`,
-                {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        contents: [
-                            {
-                                role: "user",
-                                parts: [{ text: systemInstruction }],
-                            },
-                            ...messages.value
-                                .slice(-6)
-                                .map((m) => ({
-                                    role: m.role === "user" ? "user" : "model",
-                                    parts: [{ text: m.text }],
-                                })),
-                            { role: "user", parts: [{ text: userText }] },
-                        ],
-                    }),
-                },
-            );
-            const data = await res.json();
-            reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        } else {
+            await runMultiKeyProvider("gemini", async (apiKey) => {
+                const res = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [
+                                {
+                                    role: "user",
+                                    parts: [{ text: systemInstruction }],
+                                },
+                                ...messages.value
+                                    .slice(-6)
+                                    .map((m) => ({
+                                        role:
+                                            m.role === "user"
+                                                ? "user"
+                                                : "model",
+                                        parts: [{ text: m.text }],
+                                    })),
+                                { role: "user", parts: [{ text: userText }] },
+                            ],
+                        }),
+                    },
+                );
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error?.message || "Error");
+                return data.candidates?.[0]?.content?.parts?.[0]?.text;
+            });
+        }
+
+        // 2. JALUR GROQ
+        else if (currentProvider.value === "groq") {
+            const activeKey = apiKeys.groq;
+            if (!activeKey) throw new Error("API Key Groq kosong.");
             const res = await fetch(
                 "https://api.groq.com/openai/v1/chat/completions",
                 {
@@ -166,10 +258,45 @@ const sendMessage = async () => {
             const data = await res.json();
             reply = data.choices?.[0]?.message?.content;
         }
-        messages.value.push({
-            role: "model",
-            text: reply || "Maaf, otakku lagi loading... 🥺",
-        });
+
+        // 3. JALUR AIML (UPDATE MULTI KEY)
+        else if (currentProvider.value === "aiml") {
+            await runMultiKeyProvider("aiml", async (apiKey) => {
+                const res = await fetch(
+                    "https://api.aimlapi.com/v1/chat/completions",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json",
+                            Authorization: `Bearer ${apiKey}`,
+                        },
+                        body: JSON.stringify({
+                            model: "gpt-4o",
+                            messages: [
+                                { role: "system", content: systemInstruction },
+                                ...messages.value
+                                    .slice(-6)
+                                    .map((m) => ({
+                                        role:
+                                            m.role === "model"
+                                                ? "assistant"
+                                                : "user",
+                                        content: m.text,
+                                    })),
+                                { role: "user", content: userText },
+                            ],
+                            max_tokens: 1000,
+                        }),
+                    },
+                );
+                const data = await res.json();
+                if (!res.ok)
+                    throw new Error(data.error?.message || "Error AIML");
+                return data.choices?.[0]?.message?.content;
+            });
+        }
+
+        messages.value.push({ role: "model", text: reply || "Maaf, error." });
     } catch (error) {
         messages.value.push({ role: "model", text: `Error: ${error.message}` });
     } finally {
@@ -180,17 +307,17 @@ const sendMessage = async () => {
 
 const scrollToBottom = async () => {
     await nextTick();
-    if (chatContainer.value) {
+    if (chatContainer.value)
         chatContainer.value.scrollTo({
             top: chatContainer.value.scrollHeight,
             behavior: "smooth",
         });
-    }
 };
 
 const handleExternalPrompt = (prompt) => {
     isOpen.value = true;
-    usePrompt(prompt);
+    userInput.value = prompt;
+    sendMessage();
 };
 
 defineExpose({ handleExternalPrompt });
@@ -216,8 +343,18 @@ defineExpose({ handleExternalPrompt });
                                 <Bot class="w-6 h-6 text-cozy-primary" />
                             </div>
                             <div
-                                class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-green-400 border-2 border-cozy-bg rounded-full animate-pulse"
-                            ></div>
+                                class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-cozy-bg flex items-center justify-center"
+                                :class="
+                                    isAutoKey
+                                        ? 'bg-cozy-accent animate-pulse'
+                                        : 'bg-cozy-primary'
+                                "
+                            >
+                                <span
+                                    v-if="isAutoKey"
+                                    class="w-1 h-1 bg-white rounded-full"
+                                ></span>
+                            </div>
                         </div>
                         <div>
                             <h3
@@ -226,12 +363,13 @@ defineExpose({ handleExternalPrompt });
                                 Tutor Aiya
                             </h3>
                             <div class="flex items-center gap-1.5 mt-0.5">
-                                <span
-                                    class="flex h-1.5 w-1.5 rounded-full bg-cozy-primary"
-                                ></span>
+                                <component
+                                    :is="personas[selectedPersona].icon"
+                                    class="w-3 h-3 text-cozy-primary"
+                                />
                                 <span
                                     class="text-[10px] font-bold text-cozy-muted uppercase tracking-wider"
-                                    >{{ providers[currentProvider].name }}</span
+                                    >{{ personas[selectedPersona].name }}</span
                                 >
                             </div>
                         </div>
@@ -286,6 +424,53 @@ defineExpose({ handleExternalPrompt });
                                 <h4
                                     class="text-xs font-bold text-cozy-muted uppercase tracking-widest mb-3 pl-1"
                                 >
+                                    Gaya Bicara
+                                </h4>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <button
+                                        v-for="(persona, key) in personas"
+                                        :key="key"
+                                        @click="
+                                            playPop();
+                                            selectedPersona = key;
+                                        "
+                                        class="flex flex-col items-start p-3 rounded-2xl border transition-all text-left relative overflow-hidden active:scale-95"
+                                        :class="
+                                            selectedPersona === key
+                                                ? 'bg-cozy-card border-cozy-primary ring-1 ring-cozy-primary/50 shadow-sm'
+                                                : 'bg-cozy-card/50 border-cozy-border hover:bg-cozy-card hover:border-cozy-primary/30'
+                                        "
+                                    >
+                                        <div
+                                            class="flex items-center gap-2 mb-1"
+                                        >
+                                            <component
+                                                :is="persona.icon"
+                                                class="w-4 h-4"
+                                                :class="
+                                                    selectedPersona === key
+                                                        ? 'text-cozy-primary'
+                                                        : 'text-cozy-muted'
+                                                "
+                                            />
+                                            <span
+                                                class="font-bold text-xs text-cozy-text"
+                                                >{{ persona.name }}</span
+                                            >
+                                        </div>
+                                        <p
+                                            class="text-[9px] text-cozy-muted leading-tight"
+                                        >
+                                            {{ persona.desc }}
+                                        </p>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4
+                                    class="text-xs font-bold text-cozy-muted uppercase tracking-widest mb-3 pl-1"
+                                >
                                     Otak AI
                                 </h4>
                                 <div class="grid grid-cols-1 gap-3">
@@ -296,7 +481,7 @@ defineExpose({ handleExternalPrompt });
                                             playPop();
                                             currentProvider = key;
                                         "
-                                        class="flex items-center justify-between p-4 rounded-2xl border transition-all text-left relative overflow-hidden"
+                                        class="flex items-center justify-between p-4 rounded-2xl border transition-all text-left relative overflow-hidden active:scale-98"
                                         :class="
                                             currentProvider === key
                                                 ? 'bg-cozy-card border-cozy-primary ring-1 ring-cozy-primary/50 shadow-sm'
@@ -343,33 +528,89 @@ defineExpose({ handleExternalPrompt });
                             </div>
 
                             <div v-if="providers[currentProvider].hasMultiKey">
-                                <h4
-                                    class="text-xs font-bold text-cozy-muted uppercase tracking-widest mb-3 pl-1 flex items-center gap-2"
+                                <div
+                                    class="flex justify-between items-center mb-3 pl-1"
                                 >
-                                    <Zap class="w-3 h-3" /> Slot Energi
-                                </h4>
+                                    <h4
+                                        class="text-xs font-bold text-cozy-muted uppercase tracking-widest flex items-center gap-2"
+                                    >
+                                        <Zap class="w-3 h-3 text-cozy-accent" />
+                                        Sumber Energi
+                                    </h4>
+                                    <button
+                                        @click="
+                                            playPop();
+                                            isAutoKey = !isAutoKey;
+                                        "
+                                        class="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all border shadow-sm active:scale-95"
+                                        :class="
+                                            isAutoKey
+                                                ? 'bg-cozy-primary text-white border-cozy-primary'
+                                                : 'bg-cozy-card text-cozy-muted border-cozy-border'
+                                        "
+                                    >
+                                        <component
+                                            :is="
+                                                isAutoKey
+                                                    ? BatteryCharging
+                                                    : Power
+                                            "
+                                            class="w-3 h-3"
+                                        />
+                                        {{ isAutoKey ? "Otomatis" : "Manual" }}
+                                    </button>
+                                </div>
+
                                 <div class="grid grid-cols-5 gap-2">
                                     <button
-                                        v-for="i in 10"
+                                        v-for="i in providers[currentProvider]
+                                            .maxKeys"
                                         :key="i"
                                         @click="
                                             playPop();
                                             selectedKeyIndex = i;
                                         "
-                                        class="h-10 rounded-xl flex items-center justify-center text-xs font-bold border transition-all relative overflow-hidden active:scale-95"
-                                        :class="
-                                            selectedKeyIndex === i
-                                                ? 'bg-cozy-primary text-white border-cozy-primary shadow-md'
-                                                : 'bg-cozy-card border-cozy-border text-cozy-muted hover:border-cozy-primary/50 hover:text-cozy-text'
+                                        :disabled="
+                                            isAutoKey ||
+                                            !apiKeys[currentProvider][i]
                                         "
+                                        class="h-10 rounded-xl flex items-center justify-center border transition-all relative overflow-hidden group"
+                                        :class="[
+                                            apiKeys[currentProvider][i]
+                                                ? selectedKeyIndex === i
+                                                    ? 'bg-cozy-primary text-white border-cozy-primary shadow-md scale-105'
+                                                    : isAutoKey
+                                                      ? 'bg-cozy-primary/10 border-cozy-primary/30 text-cozy-primary animate-pulse'
+                                                      : 'bg-cozy-card border-cozy-border text-cozy-muted hover:border-cozy-primary/50 hover:text-cozy-text'
+                                                : 'bg-cozy-bg border-dashed border-cozy-border/60 text-cozy-muted/30 cursor-not-allowed',
+                                        ]"
                                     >
-                                        {{ i }}
                                         <span
-                                            v-if="apiKeys.gemini[i]"
-                                            class="absolute top-1 right-1 w-1.5 h-1.5 bg-green-400 rounded-full border border-white dark:border-slate-800"
-                                        ></span>
+                                            class="text-xs font-bold relative z-10"
+                                            >{{ i }}</span
+                                        >
+                                        <div
+                                            v-if="
+                                                isAutoKey &&
+                                                apiKeys[currentProvider][i]
+                                            "
+                                            class="absolute inset-0 bg-cozy-accent/10 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        ></div>
                                     </button>
                                 </div>
+                                <p
+                                    class="text-[10px] text-cozy-muted/70 mt-2 text-center flex items-center justify-center gap-1"
+                                >
+                                    <span
+                                        v-if="isAutoKey"
+                                        class="w-1.5 h-1.5 rounded-full bg-cozy-accent animate-ping"
+                                    ></span>
+                                    {{
+                                        isAutoKey
+                                            ? `Mencari energi ${providers[currentProvider].name} terbaik...`
+                                            : "Pilih slot manual."
+                                    }}
+                                </p>
                             </div>
                         </div>
 
@@ -392,7 +633,6 @@ defineExpose({ handleExternalPrompt });
                     <div
                         class="absolute inset-0 bg-gradient-to-b from-cozy-primary/5 to-transparent pointer-events-none opacity-50"
                     ></div>
-
                     <div
                         v-if="messages.length === 0"
                         class="h-full flex flex-col items-center justify-center space-y-8 opacity-0 animate-fade-in-up fill-mode-forwards p-4 relative z-10"
@@ -409,12 +649,11 @@ defineExpose({ handleExternalPrompt });
                                 Halo! 👋
                             </div>
                         </div>
-
                         <div class="w-full space-y-2">
                             <p
                                 class="text-xs font-bold text-cozy-muted uppercase tracking-widest text-center mb-4"
                             >
-                                Coba tanya ini:
+                                Mulai belajar dengan:
                             </p>
                             <div class="grid grid-cols-1 gap-2">
                                 <button
@@ -436,7 +675,6 @@ defineExpose({ handleExternalPrompt });
                             </div>
                         </div>
                     </div>
-
                     <div
                         v-for="(msg, index) in messages"
                         :key="index"
@@ -453,7 +691,6 @@ defineExpose({ handleExternalPrompt });
                         >
                             <Bot class="w-4 h-4 text-cozy-primary" />
                         </div>
-
                         <div
                             class="max-w-[85%] px-5 py-3 text-sm shadow-sm relative transition-all duration-300 hover:shadow-md"
                             :class="
@@ -469,7 +706,6 @@ defineExpose({ handleExternalPrompt });
                             <div v-else>{{ msg.text }}</div>
                         </div>
                     </div>
-
                     <div
                         v-if="isLoading"
                         class="flex justify-start gap-2 relative z-10"
@@ -484,8 +720,7 @@ defineExpose({ handleExternalPrompt });
                         >
                             <Loader2
                                 class="w-4 h-4 text-cozy-primary animate-spin"
-                            />
-                            <span class="text-xs text-cozy-muted font-medium"
+                            /><span class="text-xs text-cozy-muted font-medium"
                                 >Mengetik...</span
                             >
                         </div>
@@ -504,8 +739,7 @@ defineExpose({ handleExternalPrompt });
                             type="text"
                             placeholder="Tanya Tutor Aiya..."
                             class="flex-1 bg-transparent text-sm text-cozy-text placeholder:text-cozy-muted/70 outline-none h-10 font-medium py-2"
-                        />
-                        <button
+                        /><button
                             type="submit"
                             :disabled="!userInput"
                             class="w-10 h-10 rounded-full flex items-center justify-center bg-cozy-primary text-white shadow-md disabled:opacity-50 disabled:shadow-none hover:scale-105 active:scale-90 transition-all shrink-0 mb-[1px]"
@@ -529,34 +763,26 @@ defineExpose({ handleExternalPrompt });
                     v-if="!isOpen"
                     class="absolute inset-0 bg-cozy-primary/10 rounded-[22px] animate-pulse"
                 ></div>
-                <transition name="rotate" mode="out-in">
-                    <X v-if="isOpen" class="w-7 h-7 text-cozy-muted" />
-                    <MessageSquare
+                <transition name="rotate" mode="out-in"
+                    ><X
+                        v-if="isOpen"
+                        class="w-7 h-7 text-cozy-muted" /><MessageSquare
                         v-else
                         class="w-7 h-7 text-cozy-primary fill-cozy-primary/20"
-                    />
-                </transition>
-
+                /></transition>
                 <span
                     v-if="!isOpen"
                     class="absolute top-0 right-0 w-4 h-4 bg-cozy-accent rounded-full border-[2px] border-cozy-card flex items-center justify-center transform translate-x-1 -translate-y-1"
-                >
-                    <span
+                    ><span
                         class="w-1.5 h-1.5 bg-white rounded-full animate-ping"
-                    ></span>
-                </span>
+                    ></span
+                ></span>
             </button>
         </div>
     </div>
 </template>
 
 <style scoped>
-/* Spring Physics for IOS Feel */
-.ease-spring {
-    transition-timing-function: cubic-bezier(0.175, 0.885, 0.32, 1.275);
-}
-
-/* Animations */
 .scale-up-enter-active,
 .scale-up-leave-active {
     transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
@@ -566,7 +792,6 @@ defineExpose({ handleExternalPrompt });
     opacity: 0;
     transform: translateY(20px) scale(0.95);
 }
-
 .fade-enter-active,
 .fade-leave-active {
     transition: opacity 0.2s ease;
@@ -575,7 +800,6 @@ defineExpose({ handleExternalPrompt });
 .fade-leave-to {
     opacity: 0;
 }
-
 .rotate-enter-active,
 .rotate-leave-active {
     transition: all 0.3s ease;
@@ -590,7 +814,6 @@ defineExpose({ handleExternalPrompt });
     transform: rotate(90deg);
     scale: 0.5;
 }
-
 @keyframes fadeInUp {
     from {
         opacity: 0;
@@ -607,7 +830,6 @@ defineExpose({ handleExternalPrompt });
 .fill-mode-forwards {
     animation-fill-mode: forwards;
 }
-
 .animate-spin-slow {
     animation: spin 3s linear infinite;
 }
@@ -619,8 +841,6 @@ defineExpose({ handleExternalPrompt });
         transform: rotate(360deg);
     }
 }
-
-/* Markdown Styles */
 .prose-content :deep(strong) {
     color: var(--c-primary);
     font-weight: 700;
