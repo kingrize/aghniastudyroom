@@ -39,7 +39,7 @@ const availableTopics = ref([]);
 const messages = ref([
     {
         role: "model",
-        text: "Halo Aiya! 👋 Aku siap bantu kamu belajar. Mau bahas materi yang ada di database atau topik bebas?",
+        text: "Halo Aghnia! 👋 Aku siap bantu kamu belajar. Mau bahas materi yang ada di database atau topik bebas?",
     },
 ]);
 
@@ -159,7 +159,7 @@ const closeChat = () => {
 const usePrompt = (text) => {
     userInput.value = text;
     const inputEl = document.querySelector(
-        'input[placeholder="Tanya Tutor Aiya..."]',
+        'input[placeholder="Tanya Tutor Aghnia..."]',
     );
     if (inputEl) inputEl.focus();
 };
@@ -231,29 +231,25 @@ const sendMessage = async () => {
     const personaInstruction = personas[selectedPersona.value].instruction;
     const knowledgeBaseInfo =
         availableTopics.value.length > 0
-            ? `[INFO DATABASE] Materi Aiya: ${availableTopics.value.join(", ")}.`
+            ? `[INFO DATABASE] Materi Aghnia: ${availableTopics.value.join(", ")}.`
             : `[INFO DATABASE] Database kosong.`;
     const systemInstruction = `${contextData} ${knowledgeBaseInfo} [PERAN] ${personaInstruction}`;
 
     // Prepare Payloads
     const payloadGemini = [
         { role: "user", parts: [{ text: systemInstruction }] },
-        ...messages.value
-            .slice(-6)
-            .map((m) => ({
-                role: m.role === "user" ? "user" : "model",
-                parts: [{ text: m.text }],
-            })),
+        ...messages.value.slice(-6).map((m) => ({
+            role: m.role === "user" ? "user" : "model",
+            parts: [{ text: m.text }],
+        })),
         { role: "user", parts: [{ text: userText }] },
     ];
     const payloadOpenAI = [
         { role: "system", content: systemInstruction },
-        ...messages.value
-            .slice(-6)
-            .map((m) => ({
-                role: m.role === "model" ? "assistant" : "user",
-                content: m.text,
-            })),
+        ...messages.value.slice(-6).map((m) => ({
+            role: m.role === "model" ? "assistant" : "user",
+            content: m.text,
+        })),
         { role: "user", content: userText },
     ];
     const payloads = { gemini: payloadGemini, openai: payloadOpenAI };
@@ -392,7 +388,7 @@ defineExpose({ handleExternalPrompt });
                             <h3
                                 class="font-display font-bold text-cozy-text text-base leading-tight"
                             >
-                                Tutor Aiya
+                                Tutor Aghnia
                             </h3>
                             <div class="flex items-center gap-1.5 mt-0.5">
                                 <component
@@ -809,7 +805,7 @@ defineExpose({ handleExternalPrompt });
                         <input
                             v-model="userInput"
                             type="text"
-                            placeholder="Tanya Tutor Aiya..."
+                            placeholder="Tanya Tutor Aghnia..."
                             class="flex-1 bg-transparent text-sm text-cozy-text placeholder:text-cozy-muted/70 outline-none h-10 font-medium py-2"
                         /><button
                             type="submit"

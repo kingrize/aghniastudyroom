@@ -18,7 +18,7 @@ const greeting = computed(() => {
                 class="flex items-center gap-2 text-cozy-primary font-bold text-xs tracking-[0.2em] uppercase opacity-80"
             >
                 <span class="w-8 h-[1px] bg-cozy-primary"></span>
-                <span>Ruang Belajar Aiya</span>
+                <span>Ruang Belajar Aghnia</span>
             </div>
 
             <h1

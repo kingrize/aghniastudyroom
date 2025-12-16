@@ -15,13 +15,13 @@
                 <span
                     class="text-[10px] font-bold text-cozy-muted uppercase tracking-widest"
                 >
-                    Dibuat dengan ❤️ untuk Aiya
+                    Made by ♥ for Aghnia.
                 </span>
             </div>
             <p
                 class="text-[10px] text-cozy-muted/40 font-display font-bold uppercase tracking-widest mt-2"
             >
-                &copy; 2025 PsychPrep AI
+                &copy; 2025 Arz
             </p>
         </div>
     </footer>

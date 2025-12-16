@@ -184,13 +184,12 @@ const filteredQuestions = computed(() => {
                 </div>
 
                 <h3 class="font-display font-bold text-lg text-cozy-text mb-2">
-                    Belum ada materi, Aiya.
+                    Belum ada materi nih :D
                 </h3>
                 <p
                     class="text-xs text-cozy-muted max-w-[250px] mx-auto leading-relaxed"
                 >
-                    Kucing penjaga sedang menunggu Admin memasukkan soal baru.
-                    Sabar ya! 🐾
+                    Miaww~
                 </p>
             </div>
         </main>

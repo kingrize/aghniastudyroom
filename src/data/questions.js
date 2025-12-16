@@ -126,7 +126,7 @@ export const questions = [
     tag: "Filsafat",
     icon: "PenTool",
     q: 'Apa itu metode "Deduksi" dalam Epistemologi Akal?',
-    a: "Cara berpikir menarik kesimpulan dari **Umum ke Khusus**.\n\nContoh: Semua manusia mati (Umum) -> Aiya manusia -> Aiya akan mati (Khusus).",
+    a: "Cara berpikir menarik kesimpulan dari **Umum ke Khusus**.\n\nContoh: Semua manusia mati (Umum) -> Aghnia manusia -> Aghnia akan mati (Khusus).",
   },
   {
     id: 19,
