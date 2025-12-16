@@ -33,8 +33,7 @@ const greeting = computed(() => {
             <p
                 class="text-cozy-muted text-sm md:text-base max-w-lg leading-relaxed mt-4 border-l-2 border-cozy-primary/30 pl-4"
             >
-                Kumpulan catatan ringkas Psikologi untuk persiapan ujian lisan.
-                Santai saja, pelajari satu per satu ya! 🌱
+                Semoga bisa bantu belajar kamu ya!
             </p>
         </div>
     </header>
