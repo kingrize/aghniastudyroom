@@ -1,62 +1,57 @@
 <script setup>
 import { computed } from "vue";
-import { Sparkles, HeartHandshake } from "lucide-vue-next";
+import { Sparkles } from "lucide-vue-next";
 
 const greeting = computed(() => {
-    const hour = new Date().getHours();
-    if (hour < 11) return "Selamat Pagi, Aiya! ☀️";
-    if (hour < 15) return "Selamat Siang, Semangat! 🍧";
-    if (hour < 18) return "Selamat Sore, Cantik! 🍵";
-    return "Selamat Malam, Sayang! 🌙";
+    const h = new Date().getHours();
+    if (h < 11) return "Selamat Pagi";
+    if (h < 15) return "Selamat Siang";
+    if (h < 18) return "Selamat Sore";
+    return "Selamat Malam";
 });
 </script>
 
 <template>
-    <header
-        class="pt-10 pb-6 px-6 relative overflow-hidden text-center transition-colors duration-500"
-    >
-        <div
-            class="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none -z-10 opacity-60"
-        >
+    <header class="pt-16 pb-8 px-6 md:px-12 max-w-6xl mx-auto">
+        <div class="flex flex-col gap-3 animate-fade-in-down">
             <div
-                class="absolute -top-20 -left-20 w-72 h-72 bg-cozy-primary/20 rounded-full blur-3xl mix-blend-multiply animate-pulse"
-            ></div>
-            <div
-                class="absolute top-10 -right-20 w-72 h-72 bg-cozy-accent/20 rounded-full blur-3xl mix-blend-multiply"
-            ></div>
-        </div>
-
-        <div class="relative space-y-4">
-            <div
-                class="inline-flex items-center gap-2 bg-cozy-card/80 backdrop-blur-sm px-5 py-2 rounded-full shadow-sm border border-cozy-border hover:scale-105 transition-all duration-300 cursor-default group"
+                class="flex items-center gap-2 text-cozy-primary font-bold text-xs tracking-[0.2em] uppercase opacity-80"
             >
-                <Sparkles
-                    class="w-4 h-4 text-cozy-accent group-hover:animate-spin"
-                />
-                <span
-                    class="text-[11px] md:text-xs font-bold tracking-widest text-cozy-primary uppercase"
-                >
-                    {{ greeting }}
-                </span>
+                <span class="w-8 h-[1px] bg-cozy-primary"></span>
+                <span>Ruang Belajar Aiya</span>
             </div>
 
             <h1
-                class="font-display text-3xl md:text-5xl font-bold text-cozy-text tracking-tight transition-colors"
+                class="font-display text-4xl md:text-6xl font-bold text-cozy-text leading-[1.1] tracking-tight"
             >
-                Psychology <span class="text-cozy-primary">Review</span>
+                {{ greeting }},<br />
+                <span class="text-cozy-muted opacity-50"
+                    >Siap Review Materi?</span
+                >
             </h1>
 
-            <div
-                class="flex flex-col items-center justify-center gap-1 text-cozy-muted text-sm md:text-base font-medium max-w-md mx-auto leading-relaxed transition-colors"
+            <p
+                class="text-cozy-muted text-sm md:text-base max-w-lg leading-relaxed mt-4 border-l-2 border-cozy-primary/30 pl-4"
             >
-                <p>Belajar pelan-pelan ya, jangan dipaksain.</p>
-                <div
-                    class="flex items-center gap-1.5 text-cozy-primary font-bold"
-                >
-                    <HeartHandshake class="w-4 h-4" />
-                    <span>Aku bangga banget sama kamu!</span>
-                </div>
-            </div>
+                Kumpulan catatan ringkas Psikologi untuk persiapan ujian lisan.
+                Santai saja, pelajari satu per satu ya! 🌱
+            </p>
         </div>
     </header>
 </template>
+
+<style scoped>
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.animate-fade-in-down {
+    animation: fadeInDown 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+</style>
