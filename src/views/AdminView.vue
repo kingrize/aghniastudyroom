@@ -420,8 +420,40 @@ const cancelEdit = () => {
     editingIndex.value = null;
     tempEditData.value = {};
 };
+
+// --- FIX: GENERATE MATERIAL FROM TITLE ---
 const generateMaterialFromTitle = async () => {
-    /* ... existing logic ... */
+    if (!subjectTitle.value)
+        return addToast("Please enter a topic first!", "error");
+
+    isGeneratingMaterial.value = true;
+    try {
+        const prompt = `
+            ACT AS: Expert Teacher.
+            TOPIC: "${subjectTitle.value}"
+            TASK: Write a comprehensive, structured educational summary about this topic.
+            GOAL: The text will be used to generate quiz questions later.
+            FORMAT: Plain text, clear paragraphs, key concepts explained.
+            LENGTH: Around 300-500 words.
+        `;
+
+        const result = await tryProviderWithRotation(
+            currentProvider.value,
+            prompt,
+        );
+
+        if (result) {
+            rawMaterial.value = result;
+            addToast("Material generated successfully!", "success");
+        } else {
+            throw new Error("Empty response from AI");
+        }
+    } catch (error) {
+        console.error(error);
+        addToast("Failed to generate material: " + error.message, "error");
+    } finally {
+        isGeneratingMaterial.value = false;
+    }
 };
 
 const saveToDatabase = async () => {
@@ -433,7 +465,7 @@ const saveToDatabase = async () => {
             createdAt: new Date(),
             questionsList: generatedQuestions.value,
         });
-        addToast("Saved to DB! 🎉", "success");
+        addToast("Saved to DB! 💾", "success");
         subjectTitle.value = "";
         rawMaterial.value = "";
         generatedQuestions.value = [];
@@ -896,7 +928,7 @@ const formatDate = (timestamp) => {
                                 {{
                                     generationMode === "hard"
                                         ? "🔒 Strict: 100% based on PDF. No outside facts."
-                                        : "✨ Smart: Uses PDF + AI Knowledge for better context."
+                                        : "🤖 Smart: Uses PDF + AI Knowledge for better context."
                                 }}
                             </p>
                         </div>
