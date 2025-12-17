@@ -373,7 +373,7 @@ const retry = () => {
             <p class="text-cozy-text font-medium px-4">
                 {{
                     score === 100
-                        ? "Sempurna! Aiya jenius banget! 🎉"
+                        ? "Perfect! keren, jenius banget! 🎉"
                         : score >= 60
                           ? "Lumayan! Belajar dikit lagi ya 💪"
                           : "Waduh... ayo baca materi lagi! 😅"
