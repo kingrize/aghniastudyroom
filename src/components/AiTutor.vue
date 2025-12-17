@@ -388,7 +388,7 @@ defineExpose({ handleExternalPrompt });
                             <h3
                                 class="font-display font-bold text-cozy-text text-base leading-tight"
                             >
-                                Tutor Aghnia
+                                Assistant Aghnia
                             </h3>
                             <div class="flex items-center gap-1.5 mt-0.5">
                                 <component

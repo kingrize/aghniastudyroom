@@ -4,13 +4,15 @@ import { getFirestore } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyB7Z2w5EV49tfKPRPj6wTPWvwb1fRp06Ms",
-  authDomain: "helpaiya.firebaseapp.com",
-  projectId: "helpaiya",
-  storageBucket: "helpaiya.firebasestorage.app",
-  messagingSenderId: "208942924416",
-  appId: "1:208942924416:web:27da9a6bc901995eed1c65",
-  measurementId: "G-Y36VLT0X9H",
+  apiKey: "AIzaSyARHRt1CGcFxrWhkdlUVAhplkeyXF9n5YA",
+  authDomain: "jichat-e55cd.firebaseapp.com",
+  databaseURL:
+    "https://jichat-e55cd-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "jichat-e55cd",
+  storageBucket: "jichat-e55cd.firebasestorage.app",
+  messagingSenderId: "382411371081",
+  appId: "1:382411371081:web:f8ee423859d3760cc30598",
+  measurementId: "G-R4YKGE248E",
 };
 
 // Initialize Firebase

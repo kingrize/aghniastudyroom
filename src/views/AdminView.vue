@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from "vue";
+import { ref, nextTick, watch, onMounted } from "vue"; // Tambah watch
 import { useRouter } from "vue-router";
 import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
@@ -9,6 +9,8 @@ import {
     getDocs,
     deleteDoc,
     doc,
+    query,
+    orderBy,
 } from "firebase/firestore";
 import {
     LogOut,
@@ -16,7 +18,6 @@ import {
     Save,
     Trash2,
     BookOpen,
-    FileText,
     Layers,
     Loader2,
     Eraser,
@@ -24,9 +25,20 @@ import {
     Settings2,
     Check,
     Wand2,
-    BatteryCharging,
-    Power,
     Cloud,
+    BrainCircuit,
+    Library,
+    X,
+    Calendar,
+    FileQuestion,
+    UploadCloud,
+    FileText,
+    ArrowRight,
+    Workflow,
+    Lock,
+    Globe,
+    Pencil,
+    RefreshCw,
 } from "lucide-vue-next";
 import QuestionCard from "../components/QuestionCard.vue";
 import ConfirmModal from "../components/ConfirmModal.vue";
@@ -35,293 +47,454 @@ import { useToast } from "../composables/useToast";
 const router = useRouter();
 const { addToast } = useToast();
 
-// --- STATE ---
+const DRAFT_KEY = "aiya_admin_draft_v1"; // Key untuk LocalStorage
+
+// --- STATE UI ---
 const isLoading = ref(false);
 const isSaving = ref(false);
 const isResetting = ref(false);
 const isGeneratingMaterial = ref(false);
 const showResetModal = ref(false);
+const showMaterialsModal = ref(false);
+const existingCourses = ref([]);
+const isLoadingMaterials = ref(false);
+const pdfFile = ref(null);
+const pdfFileName = ref("");
+const processingStage = ref("");
+const previewSection = ref(null);
+const isDragging = ref(false);
+
+// --- EDIT STATE ---
+const editingIndex = ref(null);
+const tempEditData = ref({});
 
 // --- AI CONFIG ---
 const currentProvider = ref("gemini");
 const selectedKeyIndex = ref(1);
 const questionCount = ref(5);
 const isAutoKey = ref(true);
+const isAutoModel = ref(true);
+const generationMode = ref("hard");
 
-// Definisi Provider (Semua Support Multi Key sekarang)
 const providers = {
     gemini: {
         name: "Gemini 2.5",
         icon: Sparkles,
-        hasMultiKey: true,
+        desc: "Multimodal (Vision & Text)",
         maxKeys: 10,
     },
-    groq: { name: "Groq Llama 3", icon: Zap, hasMultiKey: true, maxKeys: 5 }, // Di-set max 5 untuk jaga-jaga
-    aiml: { name: "AIML (GPT-4o)", icon: Cloud, hasMultiKey: true, maxKeys: 5 },
+    groq: {
+        name: "Groq Llama 3",
+        icon: Zap,
+        desc: "High-Speed Inference",
+        maxKeys: 5,
+    },
+    aiml: {
+        name: "AIML (GPT-4o)",
+        icon: Cloud,
+        desc: "Premium Model",
+        maxKeys: 5,
+    },
 };
 
-// --- LOAD API KEYS (PERBAIKAN LOGIC) ---
-const apiKeys = {
-    gemini: {},
-    groq: {},
-    aiml: {},
-};
-
-// 1. Load Gemini (1-10) - Prioritas format "_1"
-for (let i = 1; i <= 10; i++) {
+// --- LOAD API KEYS ---
+const apiKeys = { gemini: {}, groq: {}, aiml: {} };
+for (let i = 1; i <= 10; i++)
     apiKeys.gemini[i] =
         import.meta.env[`VITE_GEMINI_API_KEY_${i}`] ||
         import.meta.env[`VITE_GEMINI_API_KEY`] ||
         "";
-}
-
-// 2. Load Groq (1-5)
-for (let i = 1; i <= 5; i++) {
+for (let i = 1; i <= 5; i++)
     apiKeys.groq[i] =
         import.meta.env[`VITE_GROQ_API_KEY_${i}`] ||
         import.meta.env[`VITE_GROQ_API_KEY`] ||
         "";
-}
-
-// 3. Load AIML (1-5)
-for (let i = 1; i <= 5; i++) {
+for (let i = 1; i <= 5; i++)
     apiKeys.aiml[i] = import.meta.env[`VITE_AIML_API_KEY_${i}`] || "";
-}
 
 const subjectTitle = ref("");
 const rawMaterial = ref("");
 const generatedQuestions = ref([]);
 
-// --- AUTO SWITCHER LOGIC ---
-const executeWithAutoKey = async (apiCallFunction) => {
-    const providerName = currentProvider.value;
-    const max = providers[providerName].maxKeys;
-    const keysObj = apiKeys[providerName];
+// --- AUTO-SAVE & RESTORE DRAFT LOGIC ---
 
-    // Tentukan kunci mana saja yang mau dicoba
+// 1. Restore saat komponen dipasang (Refresh/Buka Ulang)
+onMounted(() => {
+    const savedDraft = localStorage.getItem(DRAFT_KEY);
+    if (savedDraft) {
+        try {
+            const parsed = JSON.parse(savedDraft);
+            // Hanya restore jika ada isinya
+            if (
+                parsed.title ||
+                parsed.material ||
+                (parsed.questions && parsed.questions.length > 0)
+            ) {
+                subjectTitle.value = parsed.title || "";
+                rawMaterial.value = parsed.material || "";
+                generatedQuestions.value = parsed.questions || [];
+
+                if (generatedQuestions.value.length > 0) {
+                    addToast("Draft sebelumnya dipulihkan! 📂", "info");
+                    // Auto scroll ke preview jika ada soal
+                    nextTick(() => {
+                        if (previewSection.value)
+                            previewSection.value.scrollIntoView({
+                                behavior: "smooth",
+                            });
+                    });
+                }
+            }
+        } catch (e) {
+            console.error("Gagal restore draft:", e);
+            localStorage.removeItem(DRAFT_KEY);
+        }
+    }
+});
+
+// 2. Watcher untuk Auto-Save setiap ada perubahan
+watch(
+    [subjectTitle, rawMaterial, generatedQuestions],
+    () => {
+        // Jangan simpan jika kosong semua agar storage bersih
+        if (
+            !subjectTitle.value &&
+            !rawMaterial.value &&
+            generatedQuestions.value.length === 0
+        ) {
+            return;
+        }
+
+        const draftData = {
+            title: subjectTitle.value,
+            material: rawMaterial.value,
+            questions: generatedQuestions.value,
+        };
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(draftData));
+    },
+    { deep: true },
+);
+
+// 3. Fungsi hapus draft (dipanggil saat sukses simpan ke DB atau Reset)
+const clearDraft = () => {
+    localStorage.removeItem(DRAFT_KEY);
+};
+
+// --- HELPER: FILE TO BASE64 ---
+const handleFileUpload = (event) => {
+    processFile(event.target.files[0]);
+};
+
+const onDragOver = (e) => {
+    e.preventDefault();
+    isDragging.value = true;
+};
+const onDragLeave = (e) => {
+    e.preventDefault();
+    isDragging.value = false;
+};
+const onDrop = (e) => {
+    e.preventDefault();
+    isDragging.value = false;
+    processFile(e.dataTransfer.files[0]);
+};
+
+const processFile = (file) => {
+    if (file) {
+        if (file.type !== "application/pdf") {
+            addToast("Unsupported file type. PDF only.", "error");
+            return;
+        }
+        pdfFile.value = file;
+        pdfFileName.value = file.name;
+        if (!subjectTitle.value) {
+            subjectTitle.value = file.name
+                .replace(/\.pdf$/i, "")
+                .replace(/[-_]/g, " ");
+        }
+        addToast("PDF Ready to Scan!", "success");
+    }
+};
+
+const fileToGenerativePart = async (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64String = reader.result.split(",")[1];
+            resolve({
+                inlineData: { data: base64String, mimeType: file.type },
+            });
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
+
+// --- HELPER: API CALLER ---
+const callProviderApi = async (
+    providerName,
+    apiKey,
+    prompt,
+    filePart = null,
+) => {
+    if (providerName === "gemini") {
+        const parts = [{ text: prompt }];
+        if (filePart) parts.push(filePart);
+
+        const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+            {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contents: [{ parts: parts }] }),
+            },
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "Gemini API Error");
+        return data.candidates?.[0]?.content?.parts?.[0]?.text;
+    } else if (providerName === "groq") {
+        if (filePart)
+            throw new Error("Groq does not support Direct File Upload.");
+        const res = await fetch(
+            "https://api.groq.com/openai/v1/chat/completions",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: "llama-3.3-70b-versatile",
+                    messages: [{ role: "user", content: prompt }],
+                }),
+            },
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "Groq API Error");
+        return data.choices?.[0]?.message?.content;
+    } else if (providerName === "aiml") {
+        if (filePart)
+            throw new Error("AIML does not support Direct File Upload.");
+        const res = await fetch("https://api.aimlapi.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: "gpt-4o",
+                messages: [{ role: "user", content: prompt }],
+                max_tokens: 2000,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error?.message || "AIML API Error");
+        return data.choices?.[0]?.message?.content;
+    }
+};
+
+// --- HELPER: KEY ROTATION ---
+const tryProviderWithRotation = async (
+    providerName,
+    prompt,
+    filePart = null,
+) => {
     let keysToTry = [];
+    const max = providers[providerName].maxKeys;
+
     if (isAutoKey.value) {
-        // Auto: Coba semua slot yang ada isinya
-        for (let i = 1; i <= max; i++) if (keysObj[i]) keysToTry.push(i);
+        for (let i = 1; i <= max; i++)
+            if (apiKeys[providerName][i])
+                keysToTry.push(apiKeys[providerName][i]);
     } else {
-        // Manual: Coba slot terpilih saja
-        if (keysObj[selectedKeyIndex.value])
-            keysToTry.push(selectedKeyIndex.value);
+        const selected = apiKeys[providerName][selectedKeyIndex.value];
+        if (selected) keysToTry.push(selected);
+        else
+            for (let i = 1; i <= max; i++)
+                if (apiKeys[providerName][i])
+                    keysToTry.push(apiKeys[providerName][i]);
     }
 
     if (keysToTry.length === 0)
         throw new Error(
-            `Tidak ada API Key ${providerName} yang tersedia/diisi di .env!`,
+            `No API Keys configured for ${providers[providerName].name}`,
         );
 
-    let lastError = null;
-
-    // Loop percobaan kunci
-    for (const index of keysToTry) {
+    for (const apiKey of keysToTry) {
         try {
-            // Coba panggil fungsi dengan key ini
-            const result = await apiCallFunction(keysObj[index]);
-
-            // Jika sukses, update UI ke key yang berhasil (jika mode auto)
-            if (isAutoKey.value) selectedKeyIndex.value = index;
-
-            return result;
-        } catch (err) {
-            console.warn(
-                `[${providerName}] Key slot ${index} gagal: ${err.message}`,
+            const result = await callProviderApi(
+                providerName,
+                apiKey,
+                prompt,
+                filePart,
             );
-            lastError = err;
-            // Lanjut ke loop berikutnya...
+            if (result) return result;
+        } catch (err) {
+            console.warn(`[${providerName}] Key Error, rotating...`);
         }
     }
-    throw new Error(
-        lastError?.message || `Semua slot energi ${providerName} habis.`,
-    );
+    throw new Error(`All keys exhausted for ${providerName}.`);
 };
 
-// --- ACTIONS ---
-const handleLogout = async () => {
-    await signOut(auth);
-    router.push("/login");
-};
-
-const openResetModal = () => (showResetModal.value = true);
-
-const confirmResetAction = async () => {
-    showResetModal.value = false;
-    isResetting.value = true;
-    try {
-        const querySnapshot = await getDocs(collection(db, "courses"));
-        await Promise.all(
-            querySnapshot.docs.map((d) => deleteDoc(doc(db, "courses", d.id))),
-        );
-        addToast("Database berhasil dikosongkan!", "success");
-    } catch (e) {
-        addToast("Gagal reset: " + e.message, "error");
-    } finally {
-        isResetting.value = false;
-    }
-};
-
-// --- GENERATE MATERI ---
-const generateMaterialFromTitle = async () => {
-    if (!subjectTitle.value)
-        return addToast("Isi Tag / Kategori dulu!", "error");
-    isGeneratingMaterial.value = true;
-
-    const prompt = `Buatkan rangkuman kuliah padat tentang "${subjectTitle.value}". Bahasa Indonesia. Fokus pada definisi, konsep utama, dan contoh.`;
-
-    try {
-        const resultText = await executeWithAutoKey(async (apiKey) => {
-            if (currentProvider.value === "gemini") {
-                const res = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.candidates[0].content.parts[0].text;
-            } else if (currentProvider.value === "groq") {
-                const res = await fetch(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${apiKey}`,
-                        },
-                        body: JSON.stringify({
-                            model: "llama-3.3-70b-versatile",
-                            messages: [{ role: "user", content: prompt }],
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.choices[0].message.content;
-            } else if (currentProvider.value === "aiml") {
-                const res = await fetch(
-                    "https://api.aimlapi.com/v1/chat/completions",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${apiKey}`,
-                        },
-                        body: JSON.stringify({
-                            model: "gpt-4o",
-                            messages: [{ role: "user", content: prompt }],
-                            max_tokens: 1000,
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.choices[0].message.content;
-            }
-        });
-
-        rawMaterial.value = resultText;
-        addToast("Materi berhasil dibuat!", "success");
-    } catch (error) {
-        addToast("Gagal membuat materi: " + error.message, "error");
-    } finally {
-        isGeneratingMaterial.value = false;
-    }
-};
-
-// --- GENERATE SOAL ---
+// --- CORE LOGIC: AI RELAY PIPELINE ---
 const generateQuestions = async () => {
-    if (!rawMaterial.value || !subjectTitle.value)
-        return addToast("Isi Tag dan Materi dulu!", "error");
+    if (!subjectTitle.value || (!rawMaterial.value && !pdfFile.value)) {
+        return addToast("Missing Title or Source Material!", "error");
+    }
+
     isLoading.value = true;
     generatedQuestions.value = [];
 
-    const prompt = `
-        Bertindaklah sebagai Dosen.
-        TUGAS: Buat ${questionCount.value} Flashcard pertanyaan & jawaban cerdas dari materi: "${rawMaterial.value}".
-
-        ATURAN JSON:
-        Output WAJIB Array of Objects valid (tanpa markdown). Format:
-        [{"id":1, "tag":"${subjectTitle.value}", "icon":"Brain", "q":"Pertanyaan?", "a":"Jawaban."}]
-        Pilihan Icon: Brain, MessageCircle, Dna, Lightbulb, Heart, Star, Zap.
-    `;
-
     try {
-        const resultText = await executeWithAutoKey(async (apiKey) => {
-            if (currentProvider.value === "gemini") {
-                const res = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            contents: [{ parts: [{ text: prompt }] }],
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.candidates[0].content.parts[0].text;
-            } else if (currentProvider.value === "groq") {
-                const res = await fetch(
-                    "https://api.groq.com/openai/v1/chat/completions",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${apiKey}`,
-                        },
-                        body: JSON.stringify({
-                            model: "llama-3.3-70b-versatile",
-                            messages: [{ role: "user", content: prompt }],
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.choices[0].message.content;
-            } else if (currentProvider.value === "aiml") {
-                const res = await fetch(
-                    "https://api.aimlapi.com/v1/chat/completions",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json",
-                            Authorization: `Bearer ${apiKey}`,
-                        },
-                        body: JSON.stringify({
-                            model: "gpt-4o",
-                            messages: [{ role: "user", content: prompt }],
-                        }),
-                    },
-                );
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error?.message);
-                return data.choices[0].message.content;
-            }
-        });
+        let extractedText = rawMaterial.value;
+        let filePart = null;
 
-        const cleanJson = resultText.replace(/```json|```/g, "").trim();
-        generatedQuestions.value = JSON.parse(cleanJson).map((item, index) => ({
-            ...item,
-            id: Date.now() + index,
-        }));
-        addToast(
-            `Berhasil membuat ${generatedQuestions.value.length} soal!`,
-            "success",
+        // --- STEP 1: PDF EXTRACTION (Gemini Vision) ---
+        if (pdfFile.value) {
+            processingStage.value = "Gemini Vision: Scanning PDF...";
+            try {
+                filePart = await fileToGenerativePart(pdfFile.value);
+
+                if (currentProvider.value !== "gemini") {
+                    const extractionPrompt = `
+                        TASK: Extract all educational text from this PDF.
+                        OUTPUT: Pure text only. No commentary.
+                    `;
+                    extractedText = await tryProviderWithRotation(
+                        "gemini",
+                        extractionPrompt,
+                        filePart,
+                    );
+                    addToast(
+                        "PDF Extracted! Handing over to " +
+                            providers[currentProvider.value].name,
+                        "success",
+                    );
+                    filePart = null;
+                }
+            } catch (e) {
+                throw new Error("PDF Processing Failed: " + e.message);
+            }
+        }
+
+        // --- STEP 2: CONTENT GENERATION (Selected Provider) ---
+        processingStage.value = `${providers[currentProvider.value].name} Engine: Generating...`;
+
+        // DYNAMIC CONSTRAINT
+        let constraintInstruction = "";
+        if (generationMode.value === "hard") {
+            constraintInstruction = `
+            CRITICAL CONSTRAINTS (STRICT MODE):
+            - Questions and Answers must be derived 100% ONLY from the source material provided.
+            - Do NOT add external facts, even if they are correct.
+            `;
+        } else {
+            constraintInstruction = `
+            CREATIVE GUIDELINES (SMART MODE):
+            - Use the source material as the primary foundation.
+            - You are ENCOURAGED to use your internal knowledge to explain concepts more clearly.
+            - Add relevant context, examples, or analogies.
+            `;
+        }
+
+        const finalPrompt = `
+            ACT AS: Expert Professor.
+            ORIGINAL TOPIC: "${subjectTitle.value}"
+
+            TASK 1 (SMART TAGGING):
+            Analyze the "ORIGINAL TOPIC". Create a SHORT, CATCHY TAG (Max 2-3 words).
+            Example: "Anxiety Remaja", "Sejarah RI".
+
+            TASK 2 (CONTENT GENERATION):
+            Study the provided material carefully.
+            Create ${questionCount.value} Flashcard Questions (Multiple Choice/Short Answer).
+
+            ${constraintInstruction}
+
+            OUTPUT FORMAT (Strict JSON Array):
+            [{"id":1, "tag":"[AI_GENERATED_TAG]", "icon":"Brain", "q":"Question?", "a":"Answer."}]
+
+            Allowed Icons: Brain, MessageCircle, Dna, Lightbulb, Heart, Star, Zap.
+
+            ${filePart ? "SOURCE: ATTACHED PDF DOCUMENT" : `SOURCE MATERIAL:\n"${extractedText}"`}
+        `;
+
+        let result = await tryProviderWithRotation(
+            currentProvider.value,
+            finalPrompt,
+            filePart,
         );
+
+        result = result.replace(/```json|```/g, "").trim();
+        const firstBracket = result.indexOf("[");
+        const lastBracket = result.lastIndexOf("]");
+
+        if (firstBracket !== -1 && lastBracket !== -1) {
+            const cleanJson = result.substring(firstBracket, lastBracket + 1);
+            const parsed = JSON.parse(cleanJson);
+            generatedQuestions.value = parsed.map((item, index) => ({
+                ...item,
+                id: Date.now() + index,
+                tag: item.tag || subjectTitle.value,
+            }));
+            addToast(
+                `Success! ${generatedQuestions.value.length} items generated (${generationMode.value === "hard" ? "Strict" : "Smart"} Mode).`,
+                "success",
+            );
+
+            await nextTick();
+            if (previewSection.value) {
+                previewSection.value.scrollIntoView({
+                    behavior: "smooth",
+                    block: "start",
+                });
+            }
+        } else {
+            throw new Error("Invalid JSON response from AI.");
+        }
     } catch (error) {
-        console.error(error);
-        addToast("Gagal generate soal: " + error.message, "error");
+        console.error("Pipeline Error:", error);
+        addToast(error.message, "error");
     } finally {
         isLoading.value = false;
+        processingStage.value = "";
+    }
+};
+
+// --- EDITING LOGIC ---
+const startEdit = (index) => {
+    editingIndex.value = index;
+    tempEditData.value = JSON.parse(
+        JSON.stringify(generatedQuestions.value[index]),
+    );
+};
+
+const saveEdit = (index) => {
+    generatedQuestions.value[index] = { ...tempEditData.value };
+    editingIndex.value = null;
+    addToast("Changes saved!", "success");
+};
+
+const cancelEdit = () => {
+    editingIndex.value = null;
+    tempEditData.value = {};
+};
+
+const generateMaterialFromTitle = async () => {
+    if (!subjectTitle.value) return addToast("Tag/Title Required!", "error");
+    isGeneratingMaterial.value = true;
+    const prompt = `Buatkan rangkuman kuliah padat tentang "${subjectTitle.value}". Bahasa Indonesia.`;
+    try {
+        const result = await tryProviderWithRotation(
+            currentProvider.value,
+            prompt,
+        );
+        rawMaterial.value = result;
+        addToast("Material Generated!", "success");
+    } catch (error) {
+        addToast(error.message, "error");
+    } finally {
+        isGeneratingMaterial.value = false;
     }
 };
 
@@ -334,125 +507,331 @@ const saveToDatabase = async () => {
             createdAt: new Date(),
             questionsList: generatedQuestions.value,
         });
-        addToast("Berhasil disimpan ke Database! 🎉", "success");
+        addToast("Saved to Database! 🎉", "success");
+
+        // Hapus Data & Bersihkan Draft
         subjectTitle.value = "";
         rawMaterial.value = "";
         generatedQuestions.value = [];
+        pdfFile.value = null;
+        pdfFileName.value = "";
+        const fileInput = document.getElementById("pdf-upload");
+        if (fileInput) fileInput.value = "";
+
+        clearDraft(); // Hapus draft karena sudah tersimpan aman di DB
     } catch (error) {
-        addToast("Gagal menyimpan: " + error.message, "error");
+        addToast("Save Failed: " + error.message, "error");
     } finally {
         isSaving.value = false;
     }
 };
-
 const removeDraft = (index) => {
     generatedQuestions.value.splice(index, 1);
+};
+const handleLogout = async () => {
+    await signOut(auth);
+    router.push("/login");
+};
+const openResetModal = () => (showResetModal.value = true);
+const confirmResetAction = async () => {
+    showResetModal.value = false;
+    isResetting.value = true;
+    try {
+        const querySnapshot = await getDocs(collection(db, "courses"));
+        await Promise.all(
+            querySnapshot.docs.map((d) => deleteDoc(doc(db, "courses", d.id))),
+        );
+        clearDraft(); // Reset DB juga menghapus draft
+        addToast("Database Reset Successful.", "success");
+    } catch (e) {
+        addToast("Reset Failed: " + e.message, "error");
+    } finally {
+        isResetting.value = false;
+    }
+};
+const openMaterialsModal = async () => {
+    showMaterialsModal.value = true;
+    isLoadingMaterials.value = true;
+    existingCourses.value = [];
+    try {
+        const q = query(
+            collection(db, "courses"),
+            orderBy("createdAt", "desc"),
+        );
+        const querySnapshot = await getDocs(q);
+        existingCourses.value = querySnapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+        }));
+    } catch (e) {
+        addToast("Fetch Error: " + e.message, "error");
+    } finally {
+        isLoadingMaterials.value = false;
+    }
+};
+const deleteCourse = async (id, title) => {
+    if (!confirm(`Delete "${title}"?`)) return;
+    try {
+        await deleteDoc(doc(db, "courses", id));
+        existingCourses.value = existingCourses.value.filter(
+            (c) => c.id !== id,
+        );
+        addToast(`Material Deleted.`, "success");
+    } catch (e) {
+        addToast("Delete Failed: " + e.message, "error");
+    }
+};
+const formatDate = (timestamp) => {
+    if (!timestamp) return "-";
+    return new Date(timestamp.seconds * 1000).toLocaleDateString("id-ID", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+    });
 };
 </script>
 
 <template>
-    <div class="min-h-screen bg-cozy-bg text-cozy-text p-6 pb-24 font-sans">
+    <div
+        class="min-h-screen bg-cozy-bg text-cozy-text font-sans pb-24 transition-colors duration-300"
+    >
         <ConfirmModal
             :isOpen="showResetModal"
-            title="Hapus Semua?"
-            message="Aksi ini permanen."
+            title="Delete All Data?"
+            message="This action is permanent."
             @close="showResetModal = false"
             @confirm="confirmResetAction"
             :isDanger="true"
         />
 
-        <header
-            class="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center mb-8 pt-4 gap-4"
-        >
-            <div>
-                <h1
-                    class="font-display text-2xl md:text-3xl font-bold text-cozy-text"
+        <transition name="fade">
+            <div
+                v-if="showMaterialsModal"
+                class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            >
+                <div
+                    class="absolute inset-0 bg-black/20 backdrop-blur-sm transition-opacity"
+                    @click="showMaterialsModal = false"
+                ></div>
+                <div
+                    class="bg-cozy-card w-full max-w-2xl max-h-[80vh] rounded-[32px] shadow-2xl border border-cozy-border flex flex-col relative z-10 overflow-hidden animate-in zoom-in-95 duration-200"
                 >
-                    Admin Dashboard
-                </h1>
-                <p class="text-sm text-cozy-muted">AI Content Generator</p>
-            </div>
-            <div class="flex gap-3">
-                <button
-                    @click="openResetModal"
-                    :disabled="isResetting"
-                    class="flex items-center gap-2 px-4 py-2 rounded-full bg-red-50 border border-red-200 text-xs font-bold text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm disabled:opacity-50"
-                >
-                    <span v-if="isResetting"
-                        ><Loader2 class="w-4 h-4 animate-spin"
-                    /></span>
-                    <span v-else class="flex items-center gap-2"
-                        ><Eraser class="w-4 h-4" /> Reset DB</span
+                    <div
+                        class="p-6 border-b border-cozy-border flex justify-between items-center bg-cozy-bg/50 backdrop-blur-md"
                     >
-                </button>
-                <button
-                    @click="handleLogout"
-                    class="flex items-center gap-2 px-4 py-2 rounded-full bg-white border border-cozy-border text-xs font-bold text-cozy-muted hover:bg-cozy-card transition-all shadow-sm"
-                >
-                    <LogOut class="w-4 h-4" /> Keluar
-                </button>
+                        <div class="flex items-center gap-3">
+                            <div
+                                class="p-2 bg-cozy-primary/10 rounded-xl text-cozy-primary"
+                            >
+                                <Library class="w-5 h-5" />
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-lg text-cozy-text">
+                                    Library
+                                </h3>
+                                <p class="text-xs text-cozy-muted">
+                                    Manage existing content.
+                                </p>
+                            </div>
+                        </div>
+                        <button
+                            @click="showMaterialsModal = false"
+                            class="p-2 rounded-full text-cozy-muted hover:bg-red-50 hover:text-red-500 transition-all"
+                        >
+                            <X class="w-5 h-5" />
+                        </button>
+                    </div>
+                    <div
+                        class="flex-1 overflow-y-auto p-6 space-y-3 bg-cozy-bg"
+                    >
+                        <div
+                            v-if="isLoadingMaterials"
+                            class="flex flex-col items-center justify-center py-12"
+                        >
+                            <Loader2
+                                class="w-8 h-8 text-cozy-primary animate-spin mb-2"
+                            />
+                            <p class="text-xs text-cozy-muted">
+                                Fetching data...
+                            </p>
+                        </div>
+                        <div
+                            v-else-if="existingCourses.length > 0"
+                            v-for="course in existingCourses"
+                            :key="course.id"
+                            class="flex items-center justify-between p-4 bg-cozy-card border border-cozy-border rounded-2xl shadow-sm hover:shadow-md transition-all group"
+                        >
+                            <div class="flex items-center gap-4">
+                                <div
+                                    class="w-10 h-10 rounded-full bg-cozy-primary/10 flex items-center justify-center text-cozy-primary font-bold text-lg uppercase"
+                                >
+                                    {{ course.title.charAt(0) }}
+                                </div>
+                                <div>
+                                    <h4
+                                        class="font-bold text-cozy-text text-sm"
+                                    >
+                                        {{ course.title }}
+                                    </h4>
+                                    <div class="flex items-center gap-3 mt-1">
+                                        <span
+                                            class="text-[10px] text-cozy-muted flex items-center gap-1"
+                                            ><FileQuestion class="w-3 h-3" />
+                                            {{
+                                                course.questionsList?.length ||
+                                                0
+                                            }}
+                                            Items</span
+                                        >
+                                        <span
+                                            class="text-[10px] text-cozy-muted flex items-center gap-1"
+                                            ><Calendar class="w-3 h-3" />
+                                            {{
+                                                formatDate(course.createdAt)
+                                            }}</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+                            <button
+                                @click="deleteCourse(course.id, course.title)"
+                                class="p-2 text-cozy-muted hover:text-red-500 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete"
+                            >
+                                <Trash2 class="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div
+                            v-else
+                            class="text-center py-12 opacity-50 text-cozy-muted"
+                        >
+                            <Library class="w-12 h-12 mx-auto mb-2" />
+                            <p class="text-sm font-bold">Database Empty</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </transition>
+
+        <header
+            class="bg-cozy-card border-b border-cozy-border sticky top-0 z-30 shadow-sm backdrop-blur-xl bg-opacity-95"
+        >
+            <div
+                class="max-w-7xl mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4"
+            >
+                <div class="flex items-center gap-3">
+                    <div
+                        class="w-10 h-10 bg-cozy-primary text-white rounded-xl flex items-center justify-center shadow-lg shadow-cozy-primary/30"
+                    >
+                        <Settings2 class="w-6 h-6 animate-spin-slow" />
+                    </div>
+                    <div>
+                        <h1
+                            class="font-display text-lg font-bold text-cozy-text leading-tight"
+                        >
+                            Admin Console
+                        </h1>
+                        <div class="flex items-center gap-2">
+                            <span
+                                class="w-2 h-2 rounded-full bg-green-500 animate-pulse"
+                            ></span>
+                            <p class="text-xs text-cozy-muted font-medium">
+                                System Operational
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                <div class="flex gap-2">
+                    <button
+                        @click="openMaterialsModal"
+                        class="flex items-center gap-2 px-4 py-2 bg-cozy-bg border border-cozy-border text-cozy-text rounded-xl text-xs font-bold hover:bg-cozy-primary hover:text-white hover:border-cozy-primary transition-all"
+                    >
+                        <Library class="w-4 h-4" /> Library
+                    </button>
+                    <button
+                        @click="openResetModal"
+                        :disabled="isResetting"
+                        class="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-100 text-red-500 rounded-xl text-xs font-bold hover:bg-red-500 hover:text-white transition-all"
+                    >
+                        <Eraser class="w-4 h-4" /> Reset DB
+                    </button>
+                    <button
+                        @click="handleLogout"
+                        class="flex items-center gap-2 px-4 py-2 bg-cozy-bg border border-cozy-border text-cozy-text rounded-xl text-xs font-bold hover:bg-cozy-text hover:text-cozy-bg transition-all"
+                    >
+                        <LogOut class="w-4 h-4" /> Exit
+                    </button>
+                </div>
             </div>
         </header>
 
-        <main class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <section class="space-y-6">
+        <main
+            class="max-w-7xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8"
+        >
+            <div class="lg:col-span-4 space-y-6">
                 <div
-                    class="bg-cozy-card p-6 rounded-[32px] shadow-sm border border-cozy-border"
+                    class="bg-cozy-card border border-cozy-border rounded-[24px] p-6 shadow-sm overflow-hidden relative"
                 >
                     <div
-                        class="flex items-center gap-2 mb-4 text-cozy-primary font-bold text-xs uppercase tracking-widest"
-                    >
-                        <Settings2 class="w-4 h-4" /> Config AI
+                        class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-cozy-primary to-cozy-accent"
+                    ></div>
+                    <div class="flex justify-between items-center mb-6">
+                        <h3
+                            class="text-sm font-bold text-cozy-text flex items-center gap-2"
+                        >
+                            <BrainCircuit class="w-4 h-4 text-cozy-primary" />
+                            AI Core
+                        </h3>
                     </div>
-
-                    <div class="grid grid-cols-3 gap-2 mb-4">
+                    <div class="grid grid-cols-3 gap-2 mb-6">
                         <button
                             v-for="(prov, key) in providers"
                             :key="key"
                             @click="currentProvider = key"
-                            class="flex flex-col items-center justify-center gap-1 p-2 rounded-2xl border transition-all active:scale-95 h-20"
+                            class="flex flex-col items-center justify-center p-3 rounded-2xl border transition-all active:scale-95 relative"
                             :class="
                                 currentProvider === key
                                     ? 'bg-cozy-primary/10 border-cozy-primary text-cozy-primary ring-1 ring-cozy-primary'
                                     : 'bg-cozy-bg border-cozy-border text-cozy-muted hover:border-cozy-primary/50'
                             "
                         >
-                            <component :is="prov.icon" class="w-5 h-5" />
-                            <span
-                                class="text-[9px] font-bold text-center leading-tight"
-                                >{{ prov.name }}</span
+                            <component
+                                :is="prov.icon"
+                                class="w-5 h-5 mb-1"
+                            /><span class="text-[9px] font-bold">{{
+                                prov.name
+                            }}</span>
+                            <div
+                                v-if="currentProvider === key"
+                                class="absolute -top-1 -right-1 w-4 h-4 bg-cozy-primary rounded-full flex items-center justify-center border-2 border-white"
                             >
+                                <Check class="w-2 h-2 text-white" />
+                            </div>
                         </button>
                     </div>
-
-                    <div v-if="providers[currentProvider].hasMultiKey">
-                        <div class="flex justify-between items-center mb-2">
+                    <div
+                        class="bg-cozy-bg/50 rounded-2xl p-4 border border-cozy-border"
+                    >
+                        <div class="flex justify-between items-center mb-3">
                             <span
-                                class="text-[10px] font-bold text-cozy-muted uppercase"
-                                >Slot Energi</span
-                            >
-                            <button
+                                class="text-[10px] font-bold text-cozy-muted uppercase flex items-center gap-1"
+                                ><Zap class="w-3 h-3" /> Energy Cells</span
+                            ><button
                                 @click="isAutoKey = !isAutoKey"
-                                class="flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border"
+                                class="text-[10px] font-bold px-2 py-1 rounded-lg border transition-all"
                                 :class="
                                     isAutoKey
-                                        ? 'bg-green-100 text-green-700 border-green-200'
-                                        : 'bg-cozy-bg text-cozy-muted'
+                                        ? 'bg-cozy-accent/10 text-cozy-accent border-cozy-accent/30'
+                                        : 'bg-white text-gray-400 border-gray-200'
                                 "
                             >
-                                <component
-                                    :is="isAutoKey ? BatteryCharging : Power"
-                                    class="w-3 h-3"
-                                />
-                                {{ isAutoKey ? "Otomatis" : "Manual" }}
+                                {{ isAutoKey ? "Auto" : "Manual" }}
                             </button>
                         </div>
-
                         <div
                             class="grid grid-cols-5 gap-2"
                             :class="{
-                                'opacity-50 pointer-events-none grayscale':
-                                    isAutoKey,
+                                'opacity-50 pointer-events-none': isAutoKey,
                             }"
                         >
                             <button
@@ -460,158 +839,406 @@ const removeDraft = (index) => {
                                 :key="i"
                                 @click="selectedKeyIndex = i"
                                 :disabled="!apiKeys[currentProvider][i]"
-                                class="h-9 rounded-lg flex items-center justify-center text-xs font-bold border transition-all relative overflow-hidden"
+                                class="h-8 rounded-lg flex items-center justify-center text-[10px] font-bold border transition-all relative overflow-hidden"
                                 :class="[
                                     apiKeys[currentProvider][i]
                                         ? selectedKeyIndex === i
                                             ? 'bg-cozy-primary text-white border-cozy-primary'
-                                            : 'bg-cozy-bg border-cozy-border text-cozy-text'
-                                        : 'bg-cozy-bg/50 border-dashed border-cozy-border text-cozy-muted/30 cursor-not-allowed',
+                                            : 'bg-white border-cozy-border text-cozy-text hover:border-cozy-primary'
+                                        : 'bg-gray-100 border-dashed text-gray-300 cursor-not-allowed',
                                 ]"
                             >
                                 {{ i }}
                             </button>
                         </div>
-                        <p
-                            v-if="isAutoKey"
-                            class="text-[10px] text-green-600 mt-2 text-center font-medium bg-green-50 py-1 rounded-lg"
+                    </div>
+
+                    <div
+                        v-if="pdfFile && currentProvider !== 'gemini'"
+                        class="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl flex items-center gap-3 animate-in fade-in"
+                    >
+                        <div
+                            class="p-2 bg-blue-100 rounded-full text-blue-600 shadow-sm"
                         >
-                            ⚡ Mode Pintar: Auto-switch Key Aktif.
-                        </p>
+                            <Workflow class="w-4 h-4" />
+                        </div>
+                        <div>
+                            <p
+                                class="text-[10px] font-bold text-blue-700 uppercase tracking-wide"
+                            >
+                                AI Relay Pipeline Active
+                            </p>
+                            <p class="text-[10px] text-blue-600 leading-tight">
+                                Gemini (Vision) <span class="mx-1">&rarr;</span>
+                                {{ providers[currentProvider].name }} (Logic)
+                            </p>
+                        </div>
                     </div>
                 </div>
 
                 <div
-                    class="bg-cozy-card p-6 rounded-[32px] shadow-sm border border-cozy-border sticky top-6"
+                    class="bg-cozy-card border border-cozy-border rounded-[24px] p-6 shadow-sm sticky top-24"
                 >
-                    <div
-                        class="flex items-center gap-2 mb-4 text-cozy-primary font-bold text-xs uppercase tracking-widest"
+                    <h3
+                        class="text-sm font-bold text-cozy-text flex items-center gap-2 mb-6"
                     >
-                        <BookOpen class="w-4 h-4" /> Input Materi
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="text-xs font-bold text-cozy-muted ml-2"
-                            >Tag / Kategori</label
-                        >
-                        <div class="flex gap-2">
-                            <div
-                                class="flex-1 flex items-center gap-3 px-4 py-3 bg-cozy-bg rounded-2xl border border-cozy-border"
+                        <BookOpen class="w-4 h-4 text-cozy-accent" /> Content
+                        Studio
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label
+                                class="text-[10px] font-bold text-cozy-muted uppercase mb-1 block ml-1"
+                                >Topic / Title</label
                             >
-                                <Layers class="w-5 h-5 text-cozy-muted" /><input
-                                    v-model="subjectTitle"
-                                    type="text"
-                                    placeholder="Contoh: Sejarah"
-                                    class="flex-1 bg-transparent outline-none text-sm font-bold text-cozy-text"
-                                />
+                            <div class="flex gap-2">
+                                <div class="flex-1 relative">
+                                    <Layers
+                                        class="w-4 h-4 text-cozy-muted absolute left-3 top-3.5"
+                                    /><input
+                                        v-model="subjectTitle"
+                                        type="text"
+                                        placeholder="Ex: Cognitive Psychology"
+                                        class="w-full pl-9 pr-4 py-3 bg-cozy-bg border border-cozy-border rounded-xl text-sm font-bold text-cozy-text focus:border-cozy-primary outline-none transition-all"
+                                    />
+                                </div>
+                                <button
+                                    @click="generateMaterialFromTitle"
+                                    :disabled="
+                                        isGeneratingMaterial || !subjectTitle
+                                    "
+                                    class="w-12 flex items-center justify-center bg-gradient-to-br from-cozy-accent to-yellow-500 text-white rounded-xl shadow-md hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:grayscale"
+                                    title="AI Generate Material"
+                                >
+                                    <Loader2
+                                        v-if="isGeneratingMaterial"
+                                        class="w-5 h-5 animate-spin"
+                                    /><Wand2 v-else class="w-5 h-5" />
+                                </button>
                             </div>
-                            <button
-                                @click="generateMaterialFromTitle"
-                                :disabled="
-                                    isGeneratingMaterial || !subjectTitle
-                                "
-                                class="w-14 flex items-center justify-center bg-cozy-accent text-white rounded-2xl shadow-md hover:bg-yellow-400 active:scale-95 transition-all disabled:opacity-50"
-                                title="Generate Materi dari Judul"
-                            >
-                                <Wand2
-                                    v-if="!isGeneratingMaterial"
-                                    class="w-6 h-6"
-                                /><Loader2
-                                    v-else
-                                    class="w-6 h-6 animate-spin"
-                                />
-                            </button>
                         </div>
-                    </div>
 
-                    <div class="mb-4">
-                        <label class="text-xs font-bold text-cozy-muted ml-2"
-                            >Materi Mentah</label
-                        >
-                        <textarea
-                            v-model="rawMaterial"
-                            rows="8"
-                            placeholder="Isi materi..."
-                            class="w-full p-4 bg-cozy-bg rounded-2xl border border-cozy-border outline-none text-sm leading-relaxed resize-none"
-                        ></textarea>
-                    </div>
+                        <div>
+                            <label
+                                class="text-[10px] font-bold text-cozy-muted uppercase mb-1 block ml-1"
+                                >Generation Mode</label
+                            >
+                            <div
+                                class="grid grid-cols-2 gap-2 p-1 bg-cozy-bg rounded-xl border border-cozy-border"
+                            >
+                                <button
+                                    @click="generationMode = 'hard'"
+                                    class="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all"
+                                    :class="
+                                        generationMode === 'hard'
+                                            ? 'bg-white shadow-sm text-cozy-text ring-1 ring-cozy-border'
+                                            : 'text-cozy-muted hover:text-cozy-text'
+                                    "
+                                >
+                                    <Lock class="w-3 h-3" /> Strict
+                                </button>
+                                <button
+                                    @click="generationMode = 'soft'"
+                                    class="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-bold transition-all"
+                                    :class="
+                                        generationMode === 'soft'
+                                            ? 'bg-white shadow-sm text-cozy-primary ring-1 ring-cozy-border'
+                                            : 'text-cozy-muted hover:text-cozy-text'
+                                    "
+                                >
+                                    <Globe class="w-3 h-3" /> Smart
+                                </button>
+                            </div>
+                            <p
+                                class="text-[9px] text-cozy-muted mt-1.5 ml-1 leading-tight"
+                            >
+                                {{
+                                    generationMode === "hard"
+                                        ? "🔒 Strict: 100% based on PDF. No outside facts."
+                                        : "✨ Smart: Uses PDF + AI Knowledge for better context."
+                                }}
+                            </p>
+                        </div>
 
-                    <div class="flex items-center justify-between mb-4">
-                        <span
-                            class="text-xs font-bold text-cozy-muted uppercase"
-                            >Jumlah Soal: {{ questionCount }}</span
-                        >
-                        <input
-                            type="range"
-                            min="1"
-                            max="10"
-                            v-model="questionCount"
-                            class="w-1/2 h-2 bg-cozy-bg rounded-lg appearance-none cursor-pointer accent-cozy-primary"
-                        />
-                    </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-center px-1">
+                                <label
+                                    class="text-[10px] font-bold text-cozy-muted uppercase block"
+                                    >Source Material</label
+                                >
+                                <span
+                                    v-if="pdfFile"
+                                    class="text-[10px] font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full flex items-center gap-1 animate-in fade-in"
+                                    ><Check class="w-3 h-3" /> PDF Ready</span
+                                >
+                            </div>
 
-                    <button
-                        @click="generateQuestions"
-                        :disabled="isLoading || !rawMaterial"
-                        class="w-full py-4 rounded-2xl bg-cozy-primary text-white font-bold shadow-lg hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-50 flex justify-center gap-2"
-                    >
-                        <span v-if="isLoading" class="flex gap-2"
-                            ><Loader2 class="w-5 h-5 animate-spin" />
-                            Proses...</span
-                        ><span v-else class="flex gap-2"
-                            ><Sparkles class="w-5 h-5" /> Buat Soal</span
+                            <div
+                                class="relative group"
+                                @dragover="onDragOver"
+                                @dragleave="onDragLeave"
+                                @drop="onDrop"
+                            >
+                                <input
+                                    type="file"
+                                    id="pdf-upload"
+                                    accept="application/pdf"
+                                    @change="handleFileUpload"
+                                    class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                />
+
+                                <div
+                                    class="w-full p-4 border-2 border-dashed rounded-xl transition-all duration-300 flex flex-col items-center justify-center gap-2 text-center"
+                                    :class="[
+                                        isDragging
+                                            ? 'border-cozy-primary bg-cozy-primary/10 scale-[1.02]'
+                                            : 'border-cozy-border bg-cozy-bg',
+                                        pdfFile
+                                            ? 'bg-green-50/50 border-green-200'
+                                            : 'group-hover:border-cozy-primary/50',
+                                    ]"
+                                >
+                                    <div
+                                        v-if="!pdfFile"
+                                        class="text-cozy-muted group-hover:text-cozy-primary transition-colors flex flex-col items-center"
+                                    >
+                                        <UploadCloud
+                                            class="w-6 h-6 mb-1"
+                                            :class="{
+                                                'animate-bounce': isDragging,
+                                            }"
+                                        />
+                                        <span class="text-xs font-bold">{{
+                                            isDragging
+                                                ? "Drop PDF Here!"
+                                                : "Upload Lecture PDF"
+                                        }}</span>
+                                        <span class="text-[9px] opacity-70">{{
+                                            isDragging
+                                                ? "Release to upload..."
+                                                : "Click or drag file here"
+                                        }}</span>
+                                    </div>
+                                    <div
+                                        v-else
+                                        class="text-green-700 flex flex-col items-center w-full overflow-hidden"
+                                    >
+                                        <FileText class="w-6 h-6 mb-1" />
+                                        <span
+                                            class="text-xs font-bold truncate max-w-[200px]"
+                                            >{{ pdfFileName }}</span
+                                        >
+                                        <span
+                                            class="text-[9px] opacity-70 text-green-600"
+                                            >Click to change file</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="relative flex py-1 items-center">
+                                <div
+                                    class="flex-grow border-t border-cozy-border"
+                                ></div>
+                                <span
+                                    class="flex-shrink-0 mx-2 text-[9px] text-cozy-muted font-bold uppercase"
+                                    >OR PASTE TEXT</span
+                                >
+                                <div
+                                    class="flex-grow border-t border-cozy-border"
+                                ></div>
+                            </div>
+
+                            <textarea
+                                v-model="rawMaterial"
+                                rows="4"
+                                placeholder="Paste text here if you don't have PDF..."
+                                class="w-full p-4 bg-cozy-bg border border-cozy-border rounded-xl text-xs leading-relaxed text-cozy-text focus:border-cozy-primary outline-none resize-none transition-all"
+                            ></textarea>
+                        </div>
+
+                        <div
+                            class="bg-cozy-bg rounded-xl p-3 border border-cozy-border flex items-center gap-4"
                         >
-                    </button>
+                            <span
+                                class="text-xs font-bold text-cozy-text whitespace-nowrap"
+                                >{{ questionCount }} Items</span
+                            >
+                            <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                v-model="questionCount"
+                                class="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-cozy-primary"
+                            />
+                        </div>
+
+                        <button
+                            @click="generateQuestions"
+                            :disabled="isLoading || (!rawMaterial && !pdfFile)"
+                            class="w-full py-4 rounded-xl bg-cozy-primary text-white font-bold shadow-lg shadow-cozy-primary/20 hover:shadow-xl hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-70 flex justify-center gap-2 relative overflow-hidden group"
+                        >
+                            <div
+                                class="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300"
+                            ></div>
+                            <span
+                                v-if="isLoading"
+                                class="flex items-center gap-2"
+                                ><Loader2 class="w-5 h-5 animate-spin" />
+                                {{ processingStage || "Processing..." }}</span
+                            >
+                            <span
+                                v-else
+                                class="flex items-center gap-2 relative z-10"
+                                ><Sparkles class="w-5 h-5" /> Generate
+                                Magic</span
+                            >
+                        </button>
+                    </div>
                 </div>
-            </section>
+            </div>
 
-            <section class="space-y-6">
-                <div class="flex justify-between px-2">
-                    <span
-                        class="text-xs font-bold text-cozy-secondary uppercase"
-                        >Preview ({{ generatedQuestions.length }})</span
+            <div class="lg:col-span-8" ref="previewSection">
+                <div class="flex justify-between items-center mb-4 px-2">
+                    <h3
+                        class="text-sm font-bold text-cozy-muted uppercase tracking-widest flex items-center gap-2"
                     >
+                        <Check class="w-4 h-4" /> Live Preview
+                        <span
+                            class="bg-cozy-bg border border-cozy-border px-2 py-0.5 rounded-md text-cozy-text"
+                            >{{ generatedQuestions.length }}</span
+                        >
+                    </h3>
                     <button
                         v-if="generatedQuestions.length"
                         @click="saveToDatabase"
                         :disabled="isSaving"
-                        class="text-xs font-bold text-cozy-primary hover:underline"
+                        class="text-xs font-bold text-cozy-primary hover:bg-cozy-primary/10 px-3 py-1.5 rounded-lg transition-all"
                     >
-                        {{ isSaving ? "Menyimpan..." : "Simpan Semua" }}
+                        {{ isSaving ? "Saving..." : "Save All" }}
                     </button>
                 </div>
 
-                <div v-if="generatedQuestions.length" class="space-y-4 pb-12">
+                <div
+                    v-if="generatedQuestions.length === 0"
+                    class="h-[600px] flex flex-col items-center justify-center text-center border-2 border-dashed border-cozy-border rounded-[32px] bg-cozy-bg/30"
+                >
+                    <div
+                        class="w-20 h-20 bg-cozy-card rounded-full flex items-center justify-center mb-4 shadow-sm"
+                    >
+                        <Sparkles class="w-8 h-8 text-cozy-muted" />
+                    </div>
+                    <h4 class="font-bold text-cozy-text text-lg">
+                        Workspace Empty
+                    </h4>
+                    <p class="text-xs text-cozy-muted mt-1 max-w-xs">
+                        Upload a PDF or paste text, then hit Generate.
+                    </p>
+                </div>
+
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-4 pb-12">
                     <div
                         v-for="(card, index) in generatedQuestions"
                         :key="index"
                         class="relative group"
                     >
-                        <button
-                            @click="removeDraft(index)"
-                            class="absolute -top-2 -right-2 z-10 p-2 bg-white text-red-400 rounded-full shadow-md hover:bg-red-50 opacity-0 group-hover:opacity-100 scale-75 group-hover:scale-100 transition-all"
+                        <div
+                            v-if="editingIndex === index"
+                            class="bg-cozy-card border-2 border-cozy-primary/50 p-4 rounded-[24px] shadow-lg flex flex-col gap-3 animate-in zoom-in-95 h-full"
                         >
-                            <Trash2 class="w-4 h-4" />
-                        </button>
-                        <QuestionCard :item="card" :isRevealed="true" />
+                            <div class="flex justify-between items-center mb-1">
+                                <span
+                                    class="text-[10px] font-bold text-cozy-primary uppercase tracking-wider"
+                                    >Editing Card #{{ index + 1 }}</span
+                                >
+                                <div class="flex gap-1">
+                                    <button
+                                        @click="saveEdit(index)"
+                                        class="p-1.5 bg-green-100 text-green-600 rounded-full hover:bg-green-200 transition-colors"
+                                    >
+                                        <Check class="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        @click="cancelEdit"
+                                        class="p-1.5 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition-colors"
+                                    >
+                                        <X class="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+                            <input
+                                v-model="tempEditData.tag"
+                                type="text"
+                                class="w-full p-2 bg-cozy-bg border border-cozy-border rounded-xl text-xs font-bold text-cozy-muted focus:border-cozy-primary outline-none"
+                                placeholder="Tag..."
+                            />
+                            <input
+                                v-model="tempEditData.q"
+                                type="text"
+                                class="w-full p-3 bg-cozy-bg border border-cozy-border rounded-xl text-sm font-bold text-cozy-text focus:border-cozy-primary outline-none"
+                                placeholder="Question..."
+                            />
+                            <textarea
+                                v-model="tempEditData.a"
+                                rows="4"
+                                class="w-full p-3 bg-cozy-bg border border-cozy-border rounded-xl text-sm text-cozy-text focus:border-cozy-primary outline-none resize-none"
+                                placeholder="Answer..."
+                            ></textarea>
+                        </div>
+
+                        <div v-else class="h-full relative">
+                            <div
+                                class="absolute -top-2 -right-2 z-20 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                            >
+                                <button
+                                    @click="startEdit(index)"
+                                    class="p-2 bg-white text-cozy-primary border border-cozy-border rounded-full shadow-md hover:bg-cozy-primary hover:text-white transition-all scale-75 group-hover:scale-100"
+                                >
+                                    <Pencil class="w-4 h-4" />
+                                </button>
+                                <button
+                                    @click="removeDraft(index)"
+                                    class="p-2 bg-white text-red-400 border border-cozy-border rounded-full shadow-md hover:bg-red-500 hover:text-white transition-all scale-75 group-hover:scale-100"
+                                >
+                                    <Trash2 class="w-4 h-4" />
+                                </button>
+                            </div>
+                            <QuestionCard
+                                :item="card"
+                                :isRevealed="true"
+                                class="h-full"
+                            />
+                        </div>
                     </div>
-                    <button
-                        @click="saveToDatabase"
-                        :disabled="isSaving"
-                        class="w-full py-4 rounded-2xl bg-white border-2 border-cozy-border text-cozy-text font-bold hover:border-green-400 hover:text-green-500 transition-all flex justify-center gap-2"
-                    >
-                        <Save class="w-5 h-5" /> Simpan Database
-                    </button>
                 </div>
 
                 <div
-                    v-else
-                    class="h-[400px] flex flex-col items-center justify-center text-center border-2 border-dashed border-cozy-border rounded-[32px] p-8 opacity-50"
+                    v-if="generatedQuestions.length > 0"
+                    class="fixed bottom-28 right-6 lg:hidden z-40"
                 >
-                    <Sparkles class="w-12 h-12 text-cozy-muted mb-4" />
-                    <p class="text-sm">Siap Membuat Soal</p>
+                    <button
+                        @click="saveToDatabase"
+                        :disabled="isSaving"
+                        class="w-14 h-14 bg-cozy-primary text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all"
+                    >
+                        <Loader2
+                            v-if="isSaving"
+                            class="w-6 h-6 animate-spin"
+                        /><Save v-else class="w-6 h-6" />
+                    </button>
                 </div>
-            </section>
+            </div>
         </main>
     </div>
 </template>
+
+<style scoped>
+.animate-spin-slow {
+    animation: spin 4s linear infinite;
+}
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+</style>
